@@ -1,6 +1,6 @@
 // SikaBook service worker: lets the app open quickly and install on phones.
 // App files: network first, cached copy if offline. Data (Supabase) is never cached here.
-const CACHE = 'sikabook-v5';
+const CACHE = 'sikabook-v6';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest', './icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });

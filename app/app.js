@@ -255,6 +255,7 @@ function home(){
       <button data-act="sheet" data-t="expnew"><i>−</i>Record expense</button>
       <button data-act="sheet" data-t="newservice"><i>▦</i>New service</button>
     </div>`:''}
+    ${canWrite()?`<div class="card"><div class="cardhead"><h3>📷 Scan a written sheet</h3></div><span class="muted">Photograph your handwritten record (Day Born, offering, thanksgiving, expenses…). SikaBook reads it, asks about anything missing, and you check before saving.</span>${scanButtons('')}</div>`:''}
     ${lastSvc?`<button class="card" style="text-align:left;cursor:pointer" data-act="opensvc" data-id="${lastSvc.id}"><div class="cardhead"><h3>Latest service · ${esc(lastSvc.title||lastSvc.kind)}</h3><span class="muted">${dLong(lastSvc.service_date)}</span></div>
       <div class="mini"><div><span>Income</span><b>${fmt(sumAmt(svcTx(lastSvc.id)))}</b></div><div><span>Expenses</span><b>${fmt(sumAmt(svcEx(lastSvc.id).filter(counted)))}</b></div></div><span class="link">Open service sheet ›</span></button>`:''}
     ${empty?`<div class="card"><h3>Welcome to SikaBook</h3><span class="muted">Start by setting each unit's starting balance in Structure, adding members, then recording this Sunday's income.</span><div class="btnrow"><button class="btn small" data-act="tab" data-id="structure">Set starting balances</button><button class="btn small ghost" data-act="tab" data-id="members">Add members</button></div></div>`:''}
@@ -469,6 +470,8 @@ function readAccess(){ const r=val('ivr'), u=val('ivu')||null, k=chk('ivk');
   if(r==='admin'&&u){ toast('A Super admin must see everything. Choose “Everything”, or pick another role.'); return null; }
   return {role:r, unit_id:u, include_children:u?k:false}; }
 function inviteMessage(v){ return `Hello ${v.display_name||''},\nYou now have a SikaBook account for ${S.org.name} (${accessLabel(v)}).\n1. Open ${appLink()}\n2. Tap “Create an account” and use this email: ${v.email}\n3. Confirm your email, then sign in.\nOn your phone, choose “Add to Home Screen” so it opens like an app.`; }
+function scanButtons(serviceId){ const sid=serviceId||'';
+  return `<div class="btnrow"><label class="btn light" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer">📷 Take photo<input type="file" class="photoin" data-service="${sid}" accept="image/*" capture="environment" hidden></label><label class="btn ghost" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer">🖼 From gallery<input type="file" class="photoin" data-service="${sid}" accept="image/*" hidden></label></div>`; }
 function ctxLine(sv,pr){ if(sv) return `<div class="note">For <b>${esc(svcName(sv))}</b>${sv.program_id?' · '+esc(progById(sv.program_id)?.name||''):''}</div>`; if(pr) return `<div class="note">For program <b>${esc(pr.name)}</b></div>`; return ''; }
 function progSelect(id, preset){ const ps=S.programs.filter(p=>inScope(p.unit_id)); if(!ps.length) return `<input type="hidden" id="${id}" value="">`;
   return `<label class="f">Program / event <span class="muted">(optional)</span><select id="${id}"><option value="">— None —</option>${ps.map(p=>`<option value="${p.id}" ${p.id===preset?'selected':''}>${esc(p.name)} (${dShort(p.starts_on)}–${dShort(p.ends_on)})</option>`).join('')}</select></label>`; }
@@ -534,7 +537,7 @@ function servicesView(){
   }
   return `<div class="pagehead row"><div><h2>Services</h2><span class="muted">${esc(scopeLabel())} · each service keeps its own income and expenses</span></div>
     ${canWrite()?`<div class="btnrow"><button class="btn" data-act="sheet" data-t="newservice">＋ New service</button><button class="btn ghost" data-act="sheet" data-t="program">＋ New program</button></div>`:''}</div>
-  <div class="stack" style="max-width:880px">${seg}${body}</div>`;
+  <div class="stack" style="max-width:880px">${canWrite()&&S.svcTab==='services'?`<div class="card"><h3>📷 Scan a written sheet</h3>${scanButtons('')}</div>`:''}${seg}${body}</div>`;
 }
 function serviceDetail(s){
   const tx=svcTx(s.id), ex=svcEx(s.id), inc=sumAmt(tx), out=sumAmt(ex.filter(counted)), pend=ex.filter(e=>e.status==='pending'), p=progById(s.program_id), db=dbForService(s.id);
@@ -560,7 +563,7 @@ function serviceDetail(s){
     </div>
     <div class="grid2"><div class="col">
       ${canWrite()?`<div class="card"><div class="cardhead"><h3>Record this service's money</h3>${isAdmin()?`<button class="link" data-act="tab" data-id="settings">Change items</button>`:''}</div>
-        <label class="btn light" style="display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer">📷 Read a photo of my written sheet<input type="file" id="photoin" data-service="${s.id}" accept="image/*" capture="environment" hidden></label>
+        ${scanButtons(s.id)}
         <span class="muted">Take a clear photo of your written record. SikaBook reads the numbers and shows them to you to check before anything is saved. Or type them below.</span>
         <div>${itemRows}
           ${svcItems().includes('Fundraising')&&!camps.length&&feat('pledges')?`<span class="muted" style="display:block;padding:6px 0">No fundraising is running on this date. <button class="link" data-act="tab" data-id="fund">Start one</button> and it will appear here.</span>`:''}
@@ -824,26 +827,49 @@ function sheetHTML(){
       <label class="f">Name<input type="text" id="un" value="${esc(u.name)}"></label>
       <label class="f">Starting balance (${curSym()}) <span class="muted">— money it had before using SikaBook</span><input type="number" id="ub" value="${num(u.opening_balance)}" inputmode="decimal"></label>
       <button class="btn" data-act="saveunit" data-id="${u.id}"${busy}>Save</button></div>`; }
-  case 'photo': { const P=S.photo; if(!P) return ''; const sv=svcById(P.service);
+  case 'photo': { const P=S.photo; if(!P) return '';
     if(P.loading) return `<div class="sheet" role="dialog" aria-label="Reading photo">${head('Reading your sheet…')}${P.url?`<img src="${P.url}" alt="Your photo" style="max-height:220px;object-fit:contain;border-radius:12px">`:''}<div class="loading" style="min-height:80px">This takes a few seconds…</div></div>`;
-    if(P.error) return `<div class="sheet" role="dialog" aria-label="Photo">${head('Could not read the photo')}<div class="note">${esc(P.error)}</div><span class="muted">Try a brighter photo taken straight from above, or type the numbers in by hand.</span></div>`;
-    const R=P.result||{}, items=(R.items||[]).filter(x=>x&&x.amount>0), exps=(R.expenses||[]).filter(x=>x&&x.amount>0);
+    if(P.error) return `<div class="sheet" role="dialog" aria-label="Photo">${head('Could not read the photo')}<div class="note">${esc(P.error)}</div><span class="muted">Try a brighter photo taken straight from above, or type the numbers in by hand.</span>${scanButtons(P.service||'')}</div>`;
+    const R=P.result||{}, sv=svcById(P.service);
     const dbKeys=['sunday','monday','tuesday','wednesday','thursday','friday','saturday','unknown'], db=R.dayborn||{};
-    const dbAllowed=sv&&dayBornAllowedFor(sv.unit_id)&&!dbForService(sv.id), dbHas=dbKeys.some(k=>num(db[k])>0);
-    const known=svcItems().filter(x=>x!=='Day Born'), match=n=>{ const l=String(n||'').toLowerCase(); return known.find(k=>k.toLowerCase()===l)||known.find(k=>l.includes(k.toLowerCase())||k.toLowerCase().includes(l))||String(n||'').trim(); };
-    const dateWarn=R.date&&sv&&R.date!==sv.service_date?`<div class="note">The sheet says <b>${dLong(R.date)}</b> but this service is on <b>${dLong(sv.service_date)}</b>. Everything will be saved to this service.</div>`:'';
+    const known=svcItems().filter(x=>x!=='Day Born'&&x!=='Fundraising'), match=n=>{ const l=String(n||'').toLowerCase(); return known.find(k=>k.toLowerCase()===l)||known.find(k=>l.includes(k.toLowerCase())||k.toLowerCase().includes(l))||String(n||'').trim(); };
+    const items=(R.items||[]).filter(x=>x&&x.amount>0).map(x=>({name:match(x.name),amount:num(x.amount)}));
+    const missing=known.filter(k=>!items.some(i=>i.name.toLowerCase()===k.toLowerCase()));
+    const exps=(R.expenses||[]).filter(x=>x&&x.amount>0);
+    const dbHas=dbKeys.some(k=>num(db[k])>0), dbOn=isChurch()&&feat('dayborn')&&svcItems().includes('Day Born');
+    const dbSum=dbKeys.reduce((a,k)=>a+num(db[k]),0), incSum=items.reduce((a,x)=>a+x.amount,0), exSum=exps.reduce((a,x)=>a+num(x.amount),0), WT=R.written_totals||{};
+    // Questions: from the reader + our own checks
+    const qs=[...(R.questions||[])];
+    if(!R.date&&!sv) qs.push('No date was found on the sheet. Check the service date below.');
+    if(sv&&R.date&&R.date!==sv.service_date) qs.push(`The sheet says ${dLong(R.date)} but you are saving to the service on ${dLong(sv.service_date)}. Is that right?`);
+    if(missing.length) qs.push(`Not found on the sheet: ${missing.join(', ')}. If you collected any, type the amount below.`);
+    if(dbOn&&!dbHas&&!(sv&&dbForService(sv.id))) qs.push('No Day Born amounts were found. If Day Born was collected, type the 8 groups below.');
+    if(dbHas&&dbKeys.some(k=>db[k]==null)) qs.push('Some Day Born groups are empty. Check the blank boxes below.');
+    if(num(WT.dayborn)>0&&Math.abs(num(WT.dayborn)-dbSum)>0.009) qs.push(`Day Born total on the sheet is ${fmt(WT.dayborn)} but the groups add up to ${fmt(dbSum)}.`);
+    if(num(WT.income)>0&&Math.abs(num(WT.income)-(incSum+dbSum))>0.009) qs.push(`Income total on the sheet is ${fmt(WT.income)} but the lines add up to ${fmt(incSum+dbSum)}.`);
+    if(num(WT.expenses)>0&&Math.abs(num(WT.expenses)-exSum)>0.009) qs.push(`Expenses total on the sheet is ${fmt(WT.expenses)} but the lines add up to ${fmt(exSum)}.`);
+    exps.forEach(x=>{ if(!x.paid_to) qs.push(`Who was paid the ${fmt(x.amount)} for “${x.purpose||'expense'}”? Type the name below.`); });
+    if((R.unsure||[]).length) qs.push(`Hard to read: ${R.unsure.join(', ')}. Compare with your photo.`);
+    // Where to save
+    const writable=S.services.filter(x=>writableUnits().some(u=>u.id===x.unit_id)).slice(0,20);
+    const guessDate=R.date||lastSunday(), sameDay=writable.find(x=>x.service_date===guessDate);
+    const target=sv?`<div class="note">Saving to <b>${esc(svcName(sv))}</b></div>`
+      :`<label class="f">Save to which service?<select id="phsvc"><option value="__new" ${sameDay?'':'selected'}>＋ A new service</option>${writable.map(x=>`<option value="${x.id}" ${sameDay&&x.id===sameDay.id?'selected':''}>${esc(svcName(x))} · ${esc(uName(x.unit_id))}</option>`).join('')}</select></label>
+        <div id="phnew" ${sameDay?'hidden':''} class="stack" style="margin-top:0;gap:8px"><div class="row2"><label class="f">Date<input type="date" id="phdate" value="${guessDate}"></label><label class="f">Type<select id="phkind">${svcKinds().map(k=>`<option ${R.service&&k.toLowerCase()===String(R.service).toLowerCase()?'selected':''}>${esc(k)}</option>`).join('')}</select></label></div>${unitPicker('phunit', mainUnit()?.id)}</div>`;
+    const rows=[...items, ...missing.map(n=>({name:n,amount:''}))];
     return `<div class="sheet" role="dialog" aria-label="Check the numbers">${head('Check the numbers')}
-      <div class="note">Compare with your sheet and fix anything that's wrong. Nothing is saved until you tap Save.${(R.unsure||[]).length?` <b>Hard to read:</b> ${esc(R.unsure.join(', '))}.`:''}</div>
+      ${qs.length?`<div class="card" style="background:var(--warn-soft);border:0"><h3>Please check ${qs.length} thing${qs.length>1?'s':''}</h3><ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">${qs.map(q=>`<li>${esc(q)}</li>`).join('')}</ol></div>`:`<div class="note">Everything looks clear. Compare with your sheet, then save. Nothing is saved until you tap Save.</div>`}
       ${P.url?`<details><summary class="link" style="cursor:pointer">Show my photo</summary><img src="${P.url}" alt="Your photo" style="margin-top:8px;max-height:380px;width:100%;object-fit:contain;border-radius:12px"></details>`:''}
-      ${dateWarn}
+      ${target}
       <h3>Income</h3>
-      ${items.map((x,i)=>`<div class="row2" style="grid-template-columns:1.4fr 1fr auto;align-items:center"><input type="text" id="phc${i}" value="${esc(match(x.name))}" list="itlist"><input type="number" inputmode="decimal" id="pha${i}" value="${num(x.amount)}" style="text-align:right"><input type="checkbox" id="phk${i}" checked style="width:20px;height:20px;accent-color:var(--brand-2)" aria-label="Include"></div>`).join('')||'<span class="muted">No income lines found.</span>'}
+      ${rows.map((x,i)=>`<div class="row2" style="grid-template-columns:1.4fr 1fr auto;align-items:center"><input type="text" id="phc${i}" value="${esc(x.name)}" list="itlist"><input type="number" inputmode="decimal" id="pha${i}" value="${x.amount}" placeholder="${x.amount===''?'not on sheet':'0'}" style="text-align:right"><input type="checkbox" id="phk${i}" checked style="width:20px;height:20px;accent-color:var(--brand-2)" aria-label="Include"></div>`).join('')}
       <datalist id="itlist">${[...new Set([...known,...C().income])].map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
-      ${dbAllowed&&dbHas?`<h3>Day Born</h3><div>${DAYS.map((d,i)=>`<div class="day"><div><b>${d.d==='Unknown'?'No day name':d.d}</b><small>${d.f?`${d.m} · ${d.f}`:'Day not known'}</small></div><input type="number" inputmode="decimal" id="phd${i}" value="${db[dbKeys[i]]??''}" placeholder="0" style="text-align:right"></div>`).join('')}</div>`:''}
-      ${dbHas&&!dbAllowed?`<div class="note">${sv&&dbForService(sv.id)?'Day Born is already saved for this service, so the Day Born numbers in the photo will be skipped.':'Day Born was found, but this unit does not record Day Born.'}</div>`:''}
-      ${exps.length?`<h3>Expenses <span class="muted" style="font-weight:400">(saved as waiting for approval)</span></h3>${exps.map((x,i)=>`<div class="stack" style="margin-top:0;gap:6px;padding:8px 0;border-top:1px solid var(--line)"><div class="row2"><input type="text" id="pxt${i}" value="${esc(x.paid_to||'')}" placeholder="Paid to"><input type="text" id="pxp${i}" value="${esc(x.purpose||'')}" placeholder="What for"></div><div class="row2" style="grid-template-columns:1fr auto;align-items:center"><input type="number" inputmode="decimal" id="pxa${i}" value="${num(x.amount)}" style="text-align:right"><input type="checkbox" id="pxk${i}" checked style="width:20px;height:20px;accent-color:var(--brand-2)" aria-label="Include"></div></div>`).join('')}`:''}
+      <input type="hidden" id="phrows" value="${rows.length}">
+      ${dbOn&&!(sv&&dbForService(sv.id))?`<h3>Day Born</h3><div>${DAYS.map((d,i)=>`<div class="day"><div><b>${d.d==='Unknown'?'No day name':d.d}</b><small>${d.f?`${d.m} · ${d.f}`:'Day not known'}</small></div><input type="number" inputmode="decimal" id="phd${i}" value="${db[dbKeys[i]]??''}" placeholder="0" style="text-align:right"></div>`).join('')}</div>`:''}
+      ${sv&&dbForService(sv.id)&&dbHas?'<div class="note">Day Born is already saved for this service, so the Day Born numbers in the photo will be skipped.</div>':''}
+      ${exps.length?`<h3>Expenses <span class="muted" style="font-weight:400">(saved as waiting for approval)</span></h3>${exps.map((x,i)=>`<div class="stack" style="margin-top:0;gap:6px;padding:8px 0;border-top:1px solid var(--line)"><div class="row2"><input type="text" id="pxt${i}" value="${esc(x.paid_to||'')}" placeholder="Paid to (who?)" ${x.paid_to?'':'style="border-color:var(--warn)"'}><input type="text" id="pxp${i}" value="${esc(x.purpose||'')}" placeholder="What for"></div><div class="row2" style="grid-template-columns:1fr auto;align-items:center"><input type="number" inputmode="decimal" id="pxa${i}" value="${num(x.amount)}" style="text-align:right"><input type="checkbox" id="pxk${i}" checked style="width:20px;height:20px;accent-color:var(--brand-2)" aria-label="Include"></div></div>`).join('')}`:''}
       ${(R.counters||[]).length?`<span class="muted">Counted by: ${esc(R.counters.join(', '))}</span>`:''}
-      <div class="sumbar"><div><span>Untick anything you don't want saved</span></div><button class="btn light" data-act="savephoto"${busy}>Save to this service</button></div></div>`; }
+      <div class="sumbar"><div><span>Untick anything you don't want saved</span></div><button class="btn light" data-act="savephoto"${busy}>Save</button></div></div>`; }
   case 'invite': case 'access': { const u=sh.t==='access'?S.orgUsers.find(x=>x.id===sh.id):null;
     return `<div class="sheet" role="dialog" aria-label="Access">${head(u?`Access for ${esc(u.display_name||u.email)}`:'Give someone an account')}
       ${u?`<span class="muted">${esc(u.email||'')}</span>`:`<label class="f">Their name<input type="text" id="ivn" placeholder="e.g. Choir Treasurer"></label>
@@ -964,18 +990,28 @@ document.addEventListener('click', async e=>{
       const c1=val('sc1').trim(), c2=val('sc2').trim(), cChanged=c1!==(s.counter1||'')||c2!==(s.counter2||'');
       if(!rows.length&&!cChanged){ toast('Enter at least one amount.'); return; }
       return act(async()=>{ if(rows.length) await must(sb.from('transactions').insert(rows)); if(cChanged) await must(sb.from('services').update({counter1:c1||null,counter2:c2||null}).eq('id',s.id)); S.svcDraft={}; }, rows.length?`Saved ${rows.length} item${rows.length>1?'s':''} · ${fmt(rows.reduce((a,r)=>a+r.amount,0))}.`:'Saved.'); }
-    case 'savephoto': { const P=S.photo, sv=svcById(P?.service); if(!P||!sv) return; const R=P.result||{};
-      const items=(R.items||[]).filter(x=>x&&x.amount>0), exps=(R.expenses||[]).filter(x=>x&&x.amount>0), rows=[], exRows=[];
-      items.forEach((_,i)=>{ if(!chk('phk'+i)) return; const c=val('phc'+i).trim(), v=Math.round((parseFloat(val('pha'+i))||0)*100)/100; if(c&&v>0){ const ac=activeCamps(sv.unit_id,sv.service_date), cid=(/fund/i.test(c)&&ac.length===1)?ac[0].id:null; rows.push({unit_id:sv.unit_id,txn_date:sv.service_date,category:cid?'Fundraising':c,amount:v,service_id:sv.id,program_id:sv.program_id,method:'Cash',campaign_id:cid,note:(sv.title||sv.kind)+' (from photo)'}); } });
-      exps.forEach((x,i)=>{ if(!chk('pxk'+i)) return; const v=Math.round((parseFloat(val('pxa'+i))||0)*100)/100, pp=val('pxp'+i).trim()||'Expense', to=val('pxt'+i).trim()||pp; if(v>0) exRows.push({unit_id:sv.unit_id,paid_to:to,purpose:pp,amount:v,exp_date:sv.service_date,fund:'General fund',service_id:sv.id,program_id:sv.program_id,note:'From photo'}); });
+    case 'savephoto': { const P=S.photo; if(!P) return; const R=P.result||{};
+      let sv=svcById(P.service); const choice=sv?null:val('phsvc');
+      if(!sv&&choice&&choice!=='__new') sv=svcById(choice);
+      const newSvc=!sv?{unit_id:val('phunit'),service_date:val('phdate'),kind:val('phkind')}:null;
+      if(newSvc&&(!newSvc.unit_id||!newSvc.service_date)){ toast('Choose the date for the new service.'); return; }
+      const nRows=+val('phrows')||0, exps=(R.expenses||[]).filter(x=>x&&x.amount>0);
+      const inc=[], exRows=[];
+      for(let i=0;i<nRows;i++){ if(!chk('phk'+i)) continue; const c=val('phc'+i).trim(), v=Math.round((parseFloat(val('pha'+i))||0)*100)/100; if(c&&v>0) inc.push({c,v}); }
+      exps.forEach((x,i)=>{ if(!chk('pxk'+i)) return; const v=Math.round((parseFloat(val('pxa'+i))||0)*100)/100, pp=val('pxp'+i).trim()||'Expense', to=val('pxt'+i).trim()||pp; if(v>0) exRows.push({paid_to:to,purpose:pp,amount:v}); });
       const dbAm=DAYS.map((_,i)=>{ const el=$('phd'+i); return el?Math.round((parseFloat(el.value)||0)*100)/100:0; }), dbTot=dbAm.reduce((a,b)=>a+b,0);
-      if(!rows.length&&!exRows.length&&!dbTot){ toast('Nothing ticked to save.'); return; }
+      if(!inc.length&&!exRows.length&&!dbTot){ toast('Nothing to save yet. Type at least one amount.'); return; }
+      let target;
       return act(async()=>{
+        target = sv || await must(sb.from('services').insert(newSvc).select().single());
+        const ac=activeCamps(target.unit_id,target.service_date);
+        const rows=inc.map(({c,v})=>{ const cid=(/fund/i.test(c)&&ac.length===1)?ac[0].id:null; return {unit_id:target.unit_id,txn_date:target.service_date,category:cid?'Fundraising':c,amount:v,service_id:target.id,program_id:target.program_id,method:'Cash',campaign_id:cid,note:(target.title||target.kind)+' (from photo)'}; });
         if(rows.length) await must(sb.from('transactions').insert(rows));
-        if(dbTot>0) await must(sb.rpc('save_dayborn',{p_unit:sv.unit_id,p_sunday:sv.service_date,p_amounts:dbAm,p_c1:(R.counters||[])[0]||'',p_c2:(R.counters||[])[1]||'',p_service:sv.id}));
-        if(exRows.length) await must(sb.from('expenses').insert(exRows));
+        if(dbTot>0&&dayBornAllowedFor(target.unit_id)&&!dbForService(target.id)) await must(sb.rpc('save_dayborn',{p_unit:target.unit_id,p_sunday:target.service_date,p_amounts:dbAm,p_c1:(R.counters||[])[0]||'',p_c2:(R.counters||[])[1]||'',p_service:target.id}));
+        if(exRows.length) await must(sb.from('expenses').insert(exRows.map(x=>({...x,unit_id:target.unit_id,exp_date:target.service_date,fund:'General fund',service_id:target.id,program_id:target.program_id,note:'From photo'}))));
         if(P.url) URL.revokeObjectURL(P.url); S.photo=null;
-      }, `Saved from photo: ${rows.length} income item${rows.length===1?'':'s'}${dbTot?', Day Born':''}${exRows.length?`, ${exRows.length} expense${exRows.length>1?'s':''}`:''}.`); }
+      }, `Saved from photo: ${inc.length} income item${inc.length===1?'':'s'}${dbTot?', Day Born':''}${exRows.length?`, ${exRows.length} expense${exRows.length>1?'s':''}`:''}.`)
+      .then(()=>{ if(target){ S.tab='services'; S.service=target.id; S.program=null; render(); } }); }
     case 'sharesvc': { const s=svcById(id), tx=svcTx(id), ex=svcEx(id).filter(counted), by={}; tx.forEach(t=>by[t.category]=(by[t.category]||0)+num(t.amount));
       const text=`${S.org.name} — ${s.title||s.kind}, ${dLong(s.service_date)}\n`+Object.entries(by).map(([k,v])=>`${k}: ${fmt(v)}`).join('\n')+`\nTotal income: ${fmt(sumAmt(tx))}\nExpenses: ${fmt(sumAmt(ex))}\nBalance: ${fmt(sumAmt(tx)-sumAmt(ex))}`;
       window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank','noopener'); return; }
@@ -1074,7 +1110,8 @@ document.addEventListener('input', e=>{
 });
 document.addEventListener('change', async e=>{
   if(e.target.id==='unitsel'){ S.view=e.target.value; S.member=S.payee=S.camp=null; S.group=null; render(); }
-  if(e.target.id==='photoin'&&e.target.files&&e.target.files[0]){ readPhoto(e.target.files[0], e.target.dataset.service); e.target.value=''; }
+  if(e.target.classList&&e.target.classList.contains('photoin')&&e.target.files&&e.target.files[0]){ readPhoto(e.target.files[0], e.target.dataset.service||null); e.target.value=''; }
+  if(e.target.id==='phsvc'){ const w=$('phnew'); if(w) w.hidden=e.target.value!=='__new'; }
   if(e.target.id==='rmonth'){ S.reportMonth=e.target.value||S.reportMonth; render(); }
   if(e.target.id==='orgsel'){ try{ localStorage.setItem('sikabook.org',e.target.value); }catch(err){} await loadOrgs(); S.view='all'; await refresh(); }
   if(e.target.dataset.feat){ const f={...(S.org.features||{}),[e.target.dataset.feat]:e.target.checked}; act(()=>must(sb.from('orgs').update({features:f}).eq('id',S.org.id)),'Saved.'); }

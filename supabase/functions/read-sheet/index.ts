@@ -32,6 +32,11 @@ const SCHEMA = {
     },
     counters: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Names of people who counted/signed, if written' },
     unsure: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Labels of any numbers that were hard to read' },
+    questions: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Short plain-English questions for the treasurer about anything missing, unclear or contradictory' },
+    written_totals: {
+      type: 'OBJECT', nullable: true, description: 'Totals written on the sheet, if any (used only to cross-check)',
+      properties: { income: num, dayborn: num, expenses: num },
+    },
   },
   required: ['items', 'expenses'],
 };
@@ -47,10 +52,15 @@ Day Born offering ("day born", "dayborn", "day bones") is split into 8 groups. P
 sunday = Kwasi / Akosua / Sunday; monday = Kwadwo / Adwoa / Monday; tuesday = Kwabena / Abena / Tuesday;
 wednesday = Kwaku / Akua / Wednesday; thursday = Yaw / Yaa / Thursday; friday = Kofi / Afua / Friday;
 saturday = Kwame / Amma / Saturday; unknown = "no day name", "others", "unknown".
-Ignore any grand total lines (the app adds the totals itself).
+If the sheet shows total lines (overall income total, Day Born total, expenses total), put them in "written_totals" and NOT in items.
 
 Expenses / payments / "paid out" lines go in "expenses" with who was paid (if written) and what for.
-Amounts must be plain numbers without currency signs (e.g. "GH¢ 1,250.50" -> 1250.5).`;
+Amounts must be plain numbers without currency signs (e.g. "GH¢ 1,250.50" -> 1250.5).
+
+Finally, act like a careful auditor. In "questions", ask the treasurer (in short, simple English) about anything important that is
+missing, unclear or contradictory: no date, a number with no label, crossed-out or overwritten figures, an expense with no purpose
+or no person paid, Day Born groups that look incomplete, or totals on the sheet that do not match the lines. Ask at most 6 questions.
+If everything is clear, return an empty list.`;
 }
 
 Deno.serve(async (req) => {

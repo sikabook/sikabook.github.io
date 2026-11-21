@@ -33,6 +33,7 @@ const FUNDS = ['General fund','Day Born fund','Welfare fund','Building fund','Ha
 const S = {
   session:null, user:null, orgs:[], org:null, me:null, loading:true, authMode:'signin', authMsg:'', recovery:false,
   units:[], orgUsers:[], invites:[], members:[], mu:[], txs:[], counts:[], budgets:[], targets:[], payees:[], lines:[], expenses:[], camps:[], pledges:[], logs:[],
+  services:[], programs:[], service:null, program:null, svcTab:'services', svcDraft:{},
   view:'all', tab:'home', member:null, payee:null, group:null, camp:null, q:'', showAll:false, showOwing:false, spendKind:'all', editB:null,
   sunday:DAYS.map(()=>''), sheet:null, forcePhone:false, showHigher:false, reportMonth: todayISO().slice(0,7), busy:false,
 };
@@ -74,6 +75,26 @@ function balanceBefore(ids, iso){ // balance at start of a date
   return open+inc-out;
 }
 const writableUnits = () => canWrite() ? S.units : [];
+const sumAmt = arr => arr.reduce((s,x)=>s+num(x.amount),0);
+
+/* ---- Services & programs helpers ---- */
+const isChurch = () => S.org?.kind==='church';
+const svcItems = () => { const f=S.org?.features||{}; return Array.isArray(f.service_items)&&f.service_items.length ? f.service_items : (isChurch()?['Offering','Thanksgiving','Fundraising','Day Born']:['Donations','Special donations','Fundraising']); };
+const svcKinds = () => { const f=S.org?.features||{}; return Array.isArray(f.service_kinds)&&f.service_kinds.length ? f.service_kinds : (isChurch()?['Sunday service','Evening service','Midweek service','Prayer meeting','Special service']:['Meeting','Event','Other']); };
+const progFields = () => ({theme:true,speakers:true,team:true,venue:true,...((S.org?.features||{}).program_fields||{})});
+const PROG_LABEL = {theme:'Theme',speakers:'Speakers',team:'Organising team',venue:'Venue'};
+const svcById = id => S.services.find(s=>s.id===id);
+const progById = id => S.programs.find(p=>p.id===id);
+const svcName = s => s ? `${s.title||s.kind} · ${dShort(s.service_date)}` : '';
+const svcTx = id => liveTx().filter(t=>t.service_id===id);
+const svcEx = id => S.expenses.filter(e=>e.service_id===id&&!e.voided&&e.status!=='rejected');
+const inProg = (row,p) => row.program_id===p.id || (row.service_id && svcById(row.service_id)?.program_id===p.id);
+const progTx = p => liveTx().filter(t=>inProg(t,p));
+const progEx = p => S.expenses.filter(e=>!e.voided&&e.status!=='rejected'&&inProg(e,p));
+const dbForService = id => S.counts.find(c=>c.service_id===id);
+const dayBornAllowedFor = unitId => isChurch() && feat('dayborn') && unitById(unitId)?.is_main;
+function datesBetween(a,b){ const out=[]; const d=new Date(a+'T00:00:00'), end=new Date(b+'T00:00:00'); while(d<=end && out.length<62){ out.push(d.toLocaleDateString('en-CA')); d.setDate(d.getDate()+1); } return out; }
+const progStatus = p => { const t=todayISO(); return t<p.starts_on?['gold','Upcoming']:t>p.ends_on?['','Ended']:['good','On now']; };
 
 /* ===================== Data ===================== */
 async function must(p){ const {data,error} = await p; if(error) throw error; return data; }
@@ -93,7 +114,7 @@ async function loadOrgs(){
 async function loadAll(){
   if(!S.org) return;
   const o = S.org.id;
-  const [org, units, ou, members, txs, counts, budgets, targets, payees, exps, camps] = await Promise.all([
+  const [org, units, ou, members, txs, counts, budgets, targets, payees, exps, camps, services, programs] = await Promise.all([
     must(sb.from('orgs').select('*').eq('id',o).single()),
     must(sb.from('units').select('*').eq('org_id',o).order('created_at')),
     must(sb.from('org_users').select('*').eq('org_id',o)),
@@ -105,8 +126,10 @@ async function loadAll(){
     must(sb.from('payees').select('*').eq('org_id',o).order('name')),
     fetchAll(()=>sb.from('expenses').select('*').eq('org_id',o).order('exp_date',{ascending:false}).order('created_at',{ascending:false})),
     must(sb.from('campaigns').select('*').eq('org_id',o).order('created_at')),
+    fetchAll(()=>sb.from('services').select('*').eq('org_id',o).order('service_date',{ascending:false}).order('created_at',{ascending:false})),
+    must(sb.from('programs').select('*').eq('org_id',o).order('starts_on',{ascending:false})),
   ]);
-  Object.assign(S,{org,units,orgUsers:ou,members,txs,counts,budgets,targets,payees,expenses:exps,camps});
+  Object.assign(S,{org,units,orgUsers:ou,members,txs,counts,budgets,targets,payees,expenses:exps,camps,services,programs});
   S.me = ou.find(r=>r.user_id===S.user.id) || S.me;
   const unitIds = units.map(u=>u.id), payeeIds = payees.map(p=>p.id), campIds = camps.map(c=>c.id);
   const [mu, lines, pledges, invites, logs] = await Promise.all([
@@ -219,6 +242,7 @@ function home(){
   const unitRows = S.view==='all'&&S.units.length>1 ? S.units.map(u=>`<button class="item" data-act="view" data-id="${u.id}"><span class="av">${esc(u.name[0])}</span><span class="t"><b>${esc(u.name)}</b><small>${esc(u.level)}</small></span><span class="amt num">${fmt(balanceOf(descendants(u.id)))}</span><span class="chev">›</span></button>`).join('') : '';
   const sundays = canDayBorn() ? dbRows().slice(-12) : [];
   const empty = !S.txs.length && !S.expenses.length;
+  const lastSvc = S.services.find(s=>inScope(s.unit_id));
   return `<div class="grid2"><div class="col">
     <section class="hero" aria-label="Summary">
       <div><div class="lab">${esc(scopeLabel())} · Balance</div><div class="big num">${fmt(bal)}</div></div>
@@ -227,8 +251,10 @@ function home(){
     ${canWrite()?`<div class="quick">
       <button data-act="sheet" data-t="income"><i>＋</i>Record income</button>
       <button data-act="sheet" data-t="expnew"><i>−</i>Record expense</button>
-      ${canDayBorn()?`<button data-act="sheet" data-t="dayentry"><i>☀</i>Day Born count</button>`:`<button data-act="tab" data-id="reports"><i>▤</i>Reports</button>`}
+      <button data-act="sheet" data-t="newservice"><i>▦</i>New service</button>
     </div>`:''}
+    ${lastSvc?`<button class="card" style="text-align:left;cursor:pointer" data-act="opensvc" data-id="${lastSvc.id}"><div class="cardhead"><h3>Latest service · ${esc(lastSvc.title||lastSvc.kind)}</h3><span class="muted">${dLong(lastSvc.service_date)}</span></div>
+      <div class="mini"><div><span>Income</span><b>${fmt(sumAmt(svcTx(lastSvc.id)))}</b></div><div><span>Expenses</span><b>${fmt(sumAmt(svcEx(lastSvc.id).filter(counted)))}</b></div></div><span class="link">Open service sheet ›</span></button>`:''}
     ${empty?`<div class="card"><h3>Welcome to SikaBook</h3><span class="muted">Start by setting each unit's starting balance in Structure, adding members, then recording this Sunday's income.</span><div class="btnrow"><button class="btn small" data-act="tab" data-id="structure">Set starting balances</button><button class="btn small ghost" data-act="tab" data-id="members">Add members</button></div></div>`:''}
     ${pend.length?`<button class="alert" data-act="tab" data-id="spend"><span>⏳</span><span><b>${pend.length} expense${pend.length>1?'s':''}</b> waiting for approval or for the recipient to confirm.</span></button>`:''}
     ${over.length?`<button class="alert" data-act="tab" data-id="budget" style="background:var(--bad-soft)"><span>⚠</span><span><b style="color:var(--bad)">Over budget:</b> ${over.map(b=>esc(b.name)).join(', ')}</span></button>`:''}
@@ -361,7 +387,7 @@ function dayGroupView(gi){
 
 /* ---- Expenses ---- */
 const ST={pending:['warn','Waiting for approval'],approved:['gold','Waiting for recipient'],confirmed:['good','Recipient confirmed'],rejected:['bad','Rejected']};
-const expRow=x=>`<button class="item" data-act="sheet" data-t="expense" data-id="${x.id}"><span class="t"><b>${esc(x.paid_to)} — ${esc(x.purpose)}</b><small>${dShort(x.exp_date)} · ${esc(uName(x.unit_id))} · ${esc(x.fund)}</small></span><span class="right"><span class="amt num">${fmt(x.amount)}</span>${x.voided?'<span class="chip bad">Voided</span>':`<span class="chip ${ST[x.status][0]}">${ST[x.status][1]}</span>`}</span><span class="chev">›</span></button>`;
+const expRow=x=>`<button class="item" data-act="sheet" data-t="expense" data-id="${x.id}"><span class="t"><b>${esc(x.paid_to)} — ${esc(x.purpose)}</b><small>${dShort(x.exp_date)} · ${esc(uName(x.unit_id))} · ${esc(x.fund)}${x.service_id&&svcById(x.service_id)?' · '+esc(svcById(x.service_id).title||svcById(x.service_id).kind):''}${x.program_id&&progById(x.program_id)?' · '+esc(progById(x.program_id).name):''}</small></span><span class="right"><span class="amt num">${fmt(x.amount)}</span>${x.voided?'<span class="chip bad">Voided</span>':`<span class="chip ${ST[x.status][0]}">${ST[x.status][1]}</span>`}</span><span class="chev">›</span></button>`;
 function spendView(){
   if(S.payee){ const p=S.payees.find(x=>x.id===S.payee); if(p) return payeeView(p); S.payee=null; }
   const ex=S.expenses.filter(x=>inScope(x.unit_id)), mk=todayISO().slice(0,7);
@@ -427,6 +453,9 @@ function budgetView(){
     </div></div>
   </div>`;
 }
+function ctxLine(sv,pr){ if(sv) return `<div class="note">For <b>${esc(svcName(sv))}</b>${sv.program_id?' · '+esc(progById(sv.program_id)?.name||''):''}</div>`; if(pr) return `<div class="note">For program <b>${esc(pr.name)}</b></div>`; return ''; }
+function progSelect(id, preset){ const ps=S.programs.filter(p=>inScope(p.unit_id)); if(!ps.length) return `<input type="hidden" id="${id}" value="">`;
+  return `<label class="f">Program / event <span class="muted">(optional)</span><select id="${id}"><option value="">— None —</option>${ps.map(p=>`<option value="${p.id}" ${p.id===preset?'selected':''}>${esc(p.name)} (${dShort(p.starts_on)}–${dShort(p.ends_on)})</option>`).join('')}</select></label>`; }
 function unitPicker(id, selected){
   const us=writableUnits(); if(us.length<=1) return `<input type="hidden" id="${id}" value="${us[0]?.id||''}">`;
   const def = selected || (S.view!=='all'?S.view:mainUnit()?.id);
@@ -469,6 +498,103 @@ function campView(c){
   </div>`;
 }
 
+/* ---- Services & programs ---- */
+function servicesView(){
+  if(S.service){ const s=svcById(S.service); if(s) return serviceDetail(s); S.service=null; }
+  if(S.program){ const p=progById(S.program); if(p) return programDetail(p); S.program=null; }
+  const seg=`<div class="seg" role="group" aria-label="Show"><button data-act="svctab" data-id="services" aria-pressed="${S.svcTab==='services'}">Services</button><button data-act="svctab" data-id="programs" aria-pressed="${S.svcTab==='programs'}">Programs & events</button></div>`;
+  let body;
+  if(S.svcTab==='services'){
+    const list=S.services.filter(s=>inScope(s.unit_id));
+    let lastM='', rows='';
+    list.forEach(s=>{ const m=s.service_date.slice(0,7); if(m!==lastM){ lastM=m; rows+=`<div class="navlab" style="padding:12px 0 2px">${MONTHS[+m.slice(5,7)-1]} ${m.slice(0,4)}</div>`; }
+      const inc=sumAmt(svcTx(s.id)), ex=sumAmt(svcEx(s.id).filter(counted)), p=progById(s.program_id);
+      rows+=`<button class="item" data-act="opensvc" data-id="${s.id}"><span class="av">${+s.service_date.slice(8,10)}</span><span class="t"><b>${esc(s.title||s.kind)}</b><small>${dLong(s.service_date)} · ${esc(uName(s.unit_id))}${p?' · '+esc(p.name):''}</small></span><span class="right"><span class="amt num">${fmt(inc-ex)}</span><span class="muted num">in ${short(inc)} · out ${short(ex)}</span></span><span class="chev">›</span></button>`; });
+    body=`<div class="card"><div class="list">${rows||`<div class="empty"><b>No services yet</b><span class="muted">Create a service for each Sunday, evening or midweek gathering. Then record its offering, thanksgiving, fundraising, Day Born and expenses together on one page.</span></div>`}</div></div>`;
+  } else {
+    const list=S.programs.filter(p=>inScope(p.unit_id));
+    body=`<div class="card"><div class="list">${list.map(p=>{const inc=sumAmt(progTx(p)), ex=sumAmt(progEx(p).filter(counted)), [c,l]=progStatus(p);
+      return `<button class="item" data-act="openprog" data-id="${p.id}"><span class="av">🎪</span><span class="t"><b>${esc(p.name)}</b><small>${dShort(p.starts_on)} – ${dLong(p.ends_on)} · ${esc(uName(p.unit_id))}</small></span><span class="right"><span class="amt num">${fmt(inc-ex)}</span><span class="chip ${c}">${l}</span></span><span class="chev">›</span></button>`}).join('')||`<div class="empty"><b>No programs yet</b><span class="muted">A program runs over several days, such as a convention, harvest week or crusade. It keeps its own income, expenses and details: theme, speakers, team and venue.</span></div>`}</div></div>`;
+  }
+  return `<div class="pagehead row"><div><h2>Services</h2><span class="muted">${esc(scopeLabel())} · each service keeps its own income and expenses</span></div>
+    ${canWrite()?`<div class="btnrow"><button class="btn" data-act="sheet" data-t="newservice">＋ New service</button><button class="btn ghost" data-act="sheet" data-t="program">＋ New program</button></div>`:''}</div>
+  <div class="stack" style="max-width:880px">${seg}${body}</div>`;
+}
+function serviceDetail(s){
+  const tx=svcTx(s.id), ex=svcEx(s.id), inc=sumAmt(tx), out=sumAmt(ex.filter(counted)), pend=ex.filter(e=>e.status==='pending'), p=progById(s.program_id), db=dbForService(s.id);
+  const camps=S.camps.filter(c=>c.unit_id===s.unit_id);
+  const d=S.svcDraft, inp=(k,ph)=>`<input type="number" inputmode="decimal" min="0" data-svc="${esc(k)}" value="${esc(d[k]||'')}" placeholder="${ph||'0.00'}" style="text-align:right">`;
+  const itemRows=svcItems().map(it=>{
+    const done=tx.filter(t=>t.category===it), doneTxt=done.length?`<small>Recorded: ${fmt(sumAmt(done))}</small>`:'';
+    if(it==='Day Born'){ if(!dayBornAllowedFor(s.unit_id)) return '';
+      return `<div class="day"><div><b>Day Born</b><small>${db?`Recorded: ${fmt(db.amounts.reduce((a,v)=>a+num(v),0))} (8 groups)`:'8 day groups'}</small></div>${db?`<button class="btn small ghost" data-act="tab" data-id="dayborn">View</button>`:`<button class="btn small" data-act="sheet" data-t="dayentry" data-id="${s.id}">Enter 8 groups</button>`}</div>`; }
+    if(it==='Fundraising') return `<div class="day"><div><b>Fundraising</b>${doneTxt}${camps.length?`<select id="svccamp" style="margin-top:6px;padding:6px 8px"><option value="">General (no campaign)</option>${camps.map(c=>`<option value="${c.id}" ${d.__camp===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>`:''}</div>${inp('Fundraising')}</div>`;
+    return `<div class="day"><div><b>${esc(it)}</b>${doneTxt}</div>${inp(it)}</div>`;
+  }).join('');
+  const draftTotal=Object.entries(d).filter(([k])=>!k.startsWith('__')).reduce((a,[,v])=>a+(parseFloat(v)||0),0)+(parseFloat(d.__otherAmt)||0);
+  return `<button class="back" data-act="closesvc">‹ Services</button>
+  <div class="pagehead" style="margin-top:8px"><h2 style="display:block">${esc(s.title||s.kind)}</h2><span class="muted">${dLong(s.service_date)} · ${esc(uName(s.unit_id))}${s.title?' · '+esc(s.kind):''}</span>
+    <div class="chips">${p?`<button class="chip gold" data-act="openprog" data-id="${p.id}" style="border:0;cursor:pointer">🎪 ${esc(p.name)}</button>`:''}${s.counter1||s.counter2?`<span class="chip">Counted by ${esc([s.counter1,s.counter2].filter(Boolean).join(' & '))}</span>`:''}</div></div>
+  <div class="stack">
+    <div class="tiles">
+      <div class="tile"><span>Income</span><b style="color:var(--good)">${fmt(inc)}</b><span>${tx.length} item${tx.length===1?'':'s'}</span></div>
+      <div class="tile"><span>Expenses</span><b style="color:var(--bad)">${fmt(out)}</b>${pend.length?`<span>${pend.length} waiting for approval</span>`:'<span>approved</span>'}</div>
+      <div class="tile"><span>Balance for this service</span><b>${fmt(inc-out)}</b><span>income − expenses</span></div>
+      <div class="tile"><span>Date</span><b style="font-size:16px">${dLong(s.service_date)}</b><span>${esc(s.kind)}</span></div>
+    </div>
+    <div class="grid2"><div class="col">
+      ${canWrite()?`<div class="card"><div class="cardhead"><h3>Record this service's money</h3>${isAdmin()?`<button class="link" data-act="tab" data-id="settings">Change items</button>`:''}</div>
+        <div>${itemRows}
+          <div class="day"><div><b>Other</b><input type="text" data-svc="__otherCat" value="${esc(d.__otherCat||'')}" placeholder="e.g. Harvest, Welfare" style="margin-top:6px;padding:6px 8px"></div>${inp('__otherAmt')}</div>
+        </div>
+        <div class="row2"><label class="f">Counted by<input type="text" id="sc1" value="${esc(s.counter1||'')}" placeholder="Counter 1"></label><label class="f">&nbsp;<input type="text" id="sc2" value="${esc(s.counter2||'')}" placeholder="Counter 2"></label></div>
+        <div class="sumbar"><div><span>To save now</span><b class="num" id="svctotal">${fmt(draftTotal)}</b></div><button class="btn light" data-act="savesvc" data-id="${s.id}">Save to this service</button></div>
+        <span class="muted">You can come back and add more at any time. Each amount gets its own receipt.</span></div>`:''}
+      <div class="card"><div class="cardhead"><h3>Expenses for this service</h3><span class="muted">${fmt(out)}</span></div>
+        <div class="list">${ex.map(expRow).join('')||'<span class="muted">No expenses for this service.</span>'}</div>
+        ${canWrite()?`<button class="btn ghost" style="align-self:flex-start" data-act="sheet" data-t="expnew" data-service="${s.id}">＋ Add an expense</button>`:''}</div>
+    </div><div class="col">
+      <div class="card"><div class="cardhead"><h3>Income recorded</h3><span class="muted">${fmt(inc)}</span></div>
+        <div class="list">${tx.map(t=>`<button class="item" data-act="sheet" data-t="txn" data-id="${t.id}"><span class="t"><b>${esc(t.category)}${t.member_id?' — '+esc(memberName(t.member_id)):''}</b><small>Receipt #${t.receipt_no}${t.campaign_id?' · '+esc(S.camps.find(c=>c.id===t.campaign_id)?.name||''):''}</small></span><span class="amt num in">${fmt(t.amount)}</span></button>`).join('')||'<span class="muted">Nothing recorded yet.</span>'}</div>
+        ${canWrite()?`<button class="link" style="align-self:flex-start" data-act="sheet" data-t="income" data-service="${s.id}">＋ Record a member's payment (tithe, dues…)</button>`:''}</div>
+      <div class="btnrow"><button class="btn ghost" data-act="sharesvc" data-id="${s.id}">Share summary on WhatsApp</button><button class="btn ghost" data-act="print">Print / PDF</button>${canWrite()?`<button class="btn ghost" data-act="sheet" data-t="editservice" data-id="${s.id}">Edit</button>`:''}</div>
+    </div></div>
+  </div>`;
+}
+function programDetail(p){
+  const tx=progTx(p), ex=progEx(p), inc=sumAmt(tx), out=sumAmt(ex.filter(counted)), [c,l]=progStatus(p), pf=progFields();
+  const svcs=S.services.filter(s=>s.program_id===p.id).sort((a,b)=>a.service_date.localeCompare(b.service_date));
+  const days=datesBetween(p.starts_on,p.ends_on);
+  const dayRows=days.map(d=>{ const i=sumAmt(tx.filter(t=>t.txn_date===d)), o=sumAmt(ex.filter(e=>counted(e)&&e.exp_date===d)), ss=svcs.filter(s=>s.service_date===d);
+    return `<tr><td>${dShort(d)} <small class="muted">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(d+'T00:00:00').getDay()]}</small></td><td style="text-align:left;white-space:normal">${ss.map(s=>`<button class="link" data-act="opensvc" data-id="${s.id}">${esc(s.title||s.kind)}</button>`).join(', ')||'<span class="muted">—</span>'}</td><td>${i.toLocaleString('en-US')}</td><td>${o.toLocaleString('en-US')}</td><td class="${i-o>=0?'pos':'neg'}">${(i-o).toLocaleString('en-US')}</td></tr>`; }).join('');
+  const outside=sumAmt(tx.filter(t=>t.txn_date<p.starts_on||t.txn_date>p.ends_on));
+  const details=Object.keys(PROG_LABEL).filter(k=>pf[k]&&p[k]).map(k=>`<dt>${PROG_LABEL[k]}</dt><dd style="white-space:pre-line">${esc(p[k])}</dd>`).join('')+(p.notes?`<dt>Notes</dt><dd style="white-space:pre-line">${esc(p.notes)}</dd>`:'');
+  const recent=[...tx.map(t=>({k:'in',d:t.txn_date,id:t.id,t:t.category+(t.member_id?' — '+memberName(t.member_id):''),a:num(t.amount)})),...ex.map(e=>({k:'out',d:e.exp_date,id:e.id,t:`${e.paid_to} — ${e.purpose}`,a:num(e.amount),st:e.status}))].sort((a,b)=>b.d.localeCompare(a.d));
+  return `<button class="back" data-act="closeprog">‹ Programs</button>
+  <div class="pagehead" style="margin-top:8px"><h2 style="display:block">${esc(p.name)}</h2><span class="muted">${dLong(p.starts_on)} – ${dLong(p.ends_on)} · ${days.length} day${days.length===1?'':'s'} · ${esc(uName(p.unit_id))}</span><div class="chips"><span class="chip ${c}">${l}</span></div></div>
+  <div class="stack">
+    <div class="tiles">
+      <div class="tile"><span>Income</span><b style="color:var(--good)">${fmt(inc)}</b></div>
+      <div class="tile"><span>Expenses</span><b style="color:var(--bad)">${fmt(out)}</b></div>
+      <div class="tile"><span>Balance</span><b>${fmt(inc-out)}</b></div>
+      <div class="tile"><span>${p.budget!=null?'Budget left':'Services'}</span><b>${p.budget!=null?fmt(num(p.budget)-out):svcs.length}</b>${p.budget!=null?`<span>of ${fmt(p.budget)} budget</span>`:''}</div>
+    </div>
+    <div class="grid2"><div class="col">
+      <div class="card"><div class="cardhead"><h3>Day by day</h3><span class="muted">${isDesk()?'':'scroll sideways'}</span></div>
+        <div class="tbl"><table><thead><tr><th>Day</th><th style="text-align:left">Services</th><th>Income</th><th>Expenses</th><th>Balance</th></tr></thead><tbody>${dayRows}
+        <tr class="total"><td>Total</td><td></td><td>${inc.toLocaleString('en-US')}</td><td>${out.toLocaleString('en-US')}</td><td>${(inc-out).toLocaleString('en-US')}</td></tr></tbody></table></div>
+        ${outside?`<span class="muted">${fmt(outside)} was recorded for this program outside its dates (e.g. early pledges).</span>`:''}
+        ${canWrite()?`<div class="btnrow"><button class="btn small" data-act="sheet" data-t="newservice" data-program="${p.id}">＋ Add a service / day</button><button class="btn small ghost" data-act="sheet" data-t="income" data-program="${p.id}">＋ Income</button><button class="btn small ghost" data-act="sheet" data-t="expnew" data-program="${p.id}">− Expense</button></div>`:''}</div>
+      ${p.budget!=null&&num(p.budget)>0?`<div class="card"><h3>Budget</h3><div class="bar"><span>${fmt(out)} spent of ${fmt(p.budget)}</span><b class="num">${Math.round(out/num(p.budget)*100)}%</b><div class="track"><div class="fill ${out>num(p.budget)?'bad':''}" style="width:${Math.min(100,out/num(p.budget)*100)}%"></div></div></div></div>`:''}
+    </div><div class="col">
+      <div class="card"><div class="cardhead"><h3>Details</h3>${canWrite()?`<button class="link" data-act="sheet" data-t="program" data-id="${p.id}">Edit</button>`:''}</div>
+        ${details?`<dl class="kv">${details}</dl>`:'<span class="muted">No details added. Tap Edit to add a theme, speakers, team or venue.</span>'}</div>
+      <div class="card"><h3>All records</h3><div class="list">${recent.slice(0,40).map(r=>`<button class="item" data-act="sheet" data-t="${r.k==='in'?'txn':'expense'}" data-id="${r.id}"><span class="t"><b>${esc(r.t)}</b><small>${dLong(r.d)}${r.st&&r.st!=='confirmed'&&r.st!=='approved'?' · '+r.st:''}</small></span><span class="amt num ${r.k}">${r.k==='in'?'+':'−'}${short(r.a)}</span></button>`).join('')||'<span class="muted">Nothing recorded yet.</span>'}</div></div>
+      <div class="btnrow"><button class="btn ghost" data-act="shareprog" data-id="${p.id}">Share summary on WhatsApp</button><button class="btn ghost" data-act="print">Print / PDF</button></div>
+    </div></div>
+  </div>`;
+}
+
 /* ---- Reports ---- */
 function reportsView(){
   const sc=scope(), mk=S.reportMonth, start=mk+'-01', [yy,mm]=mk.split('-').map(Number), next=new Date(yy,mm,1).toLocaleDateString('en-CA');
@@ -493,6 +619,11 @@ function reportsView(){
   </div><div class="col">
     <div class="card"><h3>Last 6 months</h3><div class="tbl"><table><thead><tr><th>Month</th><th>Income</th><th>Expenses</th><th>Surplus</th></tr></thead><tbody>
       ${hist.map(h=>`<tr><td>${h.m}</td><td>${h.inc.toLocaleString('en-US')}</td><td>${h.out.toLocaleString('en-US')}</td><td class="${h.inc-h.out>=0?'pos':'neg'}">${(h.inc-h.out).toLocaleString('en-US')}</td></tr>`).join('')}</tbody></table></div></div>
+    <div class="card"><h3>Services in ${mLabel}</h3>${(()=>{ const ss=S.services.filter(s=>inScope(s.unit_id)&&ym(s.service_date)===mk).sort((a,b)=>a.service_date.localeCompare(b.service_date));
+      if(!ss.length) return '<span class="muted">No services this month.</span>';
+      const r=ss.map(s=>{const i=sumAmt(svcTx(s.id)), o=sumAmt(svcEx(s.id).filter(counted)); return {s,i,o};});
+      return `<div class="tbl"><table><thead><tr><th>Service</th><th>Income</th><th>Expenses</th><th>Balance</th></tr></thead><tbody>${r.map(({s,i,o})=>`<tr><td><button data-act="opensvc" data-id="${s.id}">${dShort(s.service_date)}<small>${esc(s.title||s.kind)}</small></button></td><td>${i.toLocaleString('en-US')}</td><td>${o.toLocaleString('en-US')}</td><td class="${i-o>=0?'pos':'neg'}">${(i-o).toLocaleString('en-US')}</td></tr>`).join('')}
+        <tr class="total"><td>Total</td><td>${r.reduce((a,x)=>a+x.i,0).toLocaleString('en-US')}</td><td>${r.reduce((a,x)=>a+x.o,0).toLocaleString('en-US')}</td><td>${r.reduce((a,x)=>a+x.i-x.o,0).toLocaleString('en-US')}</td></tr></tbody></table></div>`; })()}</div>
     <div class="card"><h3>Income each month</h3>${barChart(hist.map(h=>h.m),hist.map(h=>h.inc),'Income each month')}</div>
   </div></div></div>`;
 }
@@ -529,6 +660,13 @@ function settingsView(){
     <div class="card"><h3>Features</h3>
       ${o.kind==='church'?`<label class="toggle"><span>Day Born offering<small>8 day groups every Sunday</small></span><input type="checkbox" data-feat="dayborn" ${f.dayborn?'checked':''}></label>`:''}
       <label class="toggle"><span>Pledges & fundraising</span><input type="checkbox" data-feat="pledges" ${f.pledges?'checked':''}></label></div>
+    <div class="card"><h3>Service sheet</h3><span class="muted">Choose what appears on every service sheet. Untick to hide; add your own below.</span>
+      <div class="checks">${[...new Set([...svcItems(),...C().income.filter(x=>x!=='Other'),...(isChurch()?['Day Born']:[])])].map(it=>`<label><input type="checkbox" name="svi" value="${esc(it)}" ${svcItems().includes(it)?'checked':''}> ${esc(it)}</label>`).join('')}</div>
+      <label class="f">Add your own items <span class="muted">(separate with commas)</span><input type="text" id="sviadd" placeholder="e.g. Seed offering, Building levy"></label>
+      <label class="f">Service types <span class="muted">(one per line)</span><textarea id="svkinds">${esc(svcKinds().join('\n'))}</textarea></label>
+      <span class="muted">Program details to ask for</span>
+      <div class="checks">${Object.entries(PROG_LABEL).map(([k,l])=>`<label><input type="checkbox" id="pf_${k}" ${progFields()[k]?'checked':''}> ${l}</label>`).join('')}</div>
+      <button class="btn" style="align-self:flex-start" data-act="saveitems">Save</button></div>
     <div class="card"><h3>People who can sign in</h3><div class="list">
       ${S.orgUsers.map(u=>`<div class="item"><span class="av">${esc((u.display_name||u.email||'?')[0].toUpperCase())}</span><span class="t"><b>${esc(u.display_name||u.email)}</b><small>${esc(ROLE_LABEL(u.role))} · ${u.unit_id?esc(uName(u.unit_id))+' only':'all units'}${u.user_id===S.user.id?' · you':''}</small></span>${u.user_id!==S.user.id?`<button class="btn small ghost" data-act="removeuser" data-id="${u.id}">Remove</button>`:''}</div>`).join('')}
       ${S.invites.map(v=>`<div class="item"><span class="av">✉</span><span class="t"><b>${esc(v.display_name||v.email)}</b><small>Invited · ${esc(ROLE_LABEL(v.role))} · ${v.unit_id?esc(uName(v.unit_id))+' only':'all units'} · waiting for them to create an account with ${esc(v.email)}</small></span><button class="btn small ghost" data-act="cancelinvite" data-id="${v.id}">Cancel</button></div>`).join('')}
@@ -570,20 +708,25 @@ function sheetHTML(){
       ${!t.voided?`<a class="btn small ghost" style="align-self:flex-start" href="https://wa.me/?text=${encodeURIComponent(`${S.org.name} — receipt #${t.receipt_no}\n${t.category}${t.member_id?' from '+memberName(t.member_id):''}: ${fmt(t.amount)} on ${dLong(t.txn_date)}. Thank you and God bless.`)}" target="_blank" rel="noopener">Share receipt on WhatsApp</a>`:''}
       ${!t.voided&&isApprover()&&t.category!=='Day Born'?`<details><summary class="muted" style="cursor:pointer">Void this entry (mistake)</summary><div class="stack" style="margin-top:8px"><input type="text" id="vreason" placeholder="Reason, e.g. wrong amount"><button class="btn danger small" style="align-self:flex-start" data-act="voidtx" data-id="${t.id}">Void entry</button></div></details>`:''}
     </div>`; }
-  case 'income': { const m=sh.member?S.members.find(x=>x.id===sh.member):null; const us=writableUnits(); const defU=m?(unitsOfMember(m.id).find(u=>us.some(w=>w.id===u))||us[0]?.id):(S.view!=='all'?S.view:mainUnit()?.id);
+  case 'income': { const m=sh.member?S.members.find(x=>x.id===sh.member):null; const us=writableUnits(); const sv=svcById(sh.service), pr=progById(sh.program);
+    const defU=sv?sv.unit_id:pr?pr.unit_id:m?(unitsOfMember(m.id).find(u=>us.some(w=>w.id===u))||us[0]?.id):(S.view!=='all'?S.view:mainUnit()?.id);
     return `<div class="sheet" role="dialog" aria-label="Record income">${head('Record income')}
-      ${unitPicker('iu', defU)}
-      <label class="f">Type<input type="text" id="it" list="itlist" value="${esc(C().income[0])}"><datalist id="itlist">${C().income.map(t=>`<option value="${esc(t)}">`).join('')}</datalist></label>
+      ${ctxLine(sv,pr)}
+      ${sv?`<input type="hidden" id="iu" value="${sv.unit_id}">`:unitPicker('iu', defU)}
+      <label class="f">Type<input type="text" id="it" list="itlist" value="${esc(sv?C().tithe:C().income[0])}"><datalist id="itlist">${C().income.map(t=>`<option value="${esc(t)}">`).join('')}</datalist></label>
       <label class="f">Member (optional)<select id="im"><option value="">— No member —</option>${membersInScope().map(x=>`<option value="${x.id}" ${m&&m.id===x.id?'selected':''}>${esc(x.full_name)}</option>`).join('')}</select></label>
-      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="ia" inputmode="decimal" placeholder="0.00"></label><label class="f">Date<input type="date" id="id" value="${todayISO()}"></label></div>
+      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="ia" inputmode="decimal" placeholder="0.00"></label><label class="f">Date<input type="date" id="id" value="${sv?sv.service_date:todayISO()}"></label></div>
       <div class="row2"><label class="f">Paid by<select id="ipm"><option>Cash</option><option>Mobile Money</option><option>Bank transfer</option><option>Cheque</option></select></label><label class="f">Note<input type="text" id="in" placeholder="Optional"></label></div>
+      ${!sv?progSelect('ip',sh.program):''}
       <button class="btn" data-act="saveincome"${busy}>Save</button></div>`; }
-  case 'expnew': {
+  case 'expnew': { const sv=svcById(sh.service), pr=progById(sh.program);
     return `<div class="sheet" role="dialog" aria-label="Record expense">${head('Record expense')}
-      ${unitPicker('xu')}
+      ${ctxLine(sv,pr)}
+      ${sv?`<input type="hidden" id="xu" value="${sv.unit_id}">`:unitPicker('xu', pr?.unit_id)}
       <label class="f">Paid to<input type="text" id="xto" placeholder="Person, shop or project"></label>
       <label class="f">What for<input type="text" id="xline" placeholder="e.g. Refreshments"></label>
-      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="xa" inputmode="decimal" placeholder="0.00"></label><label class="f">Date<input type="date" id="xd" value="${todayISO()}"></label></div>
+      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="xa" inputmode="decimal" placeholder="0.00"></label><label class="f">Date<input type="date" id="xd" value="${sv?sv.service_date:todayISO()}"></label></div>
+      ${!sv?progSelect('xp',sh.program):''}
       <label class="f">Paid from<input type="text" id="xf" list="xflist" value="${esc(sh.fund||'General fund')}"><datalist id="xflist">${FUNDS.map(f=>`<option value="${esc(f)}">`).join('')}</datalist></label>
       <label class="f">Budget line<select id="xb"><option value="">— None —</option>${budgetRows().map(b=>`<option value="${b.id}">${esc(b.name)} · ${esc(uName(b.unit_id))}</option>`).join('')}</select></label>
       <label class="f">Note<input type="text" id="xn" placeholder="Optional"></label>
@@ -606,12 +749,36 @@ function sheetHTML(){
       <div class="row2"><label class="f">Usual amount (${curSym()})<input type="number" id="la" inputmode="decimal"></label><label class="f">How often<select id="lf"><option>Every week</option><option>Monthly</option><option>Quarterly</option><option>One-off</option><option>As needed</option></select></label></div>
       <label class="f">Counts toward budget line<select id="lb"><option value="">— None —</option>${S.budgets.filter(b=>b.unit_id===p.unit_id&&b.year===YEAR).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></label>
       <button class="btn" data-act="saveline" data-id="${p.id}"${busy}>Add line</button></div>`; }
-  case 'dayentry': { const total=S.sunday.reduce((s,v)=>s+(parseFloat(v)||0),0), rows=dbRows(), last=rows[rows.length-1];
+  case 'dayentry': { const total=S.sunday.reduce((s,v)=>s+(parseFloat(v)||0),0), rows=dbRows(), last=rows[rows.length-1], sv=svcById(sh.id);
     return `<div class="sheet" role="dialog" aria-label="Day Born count">${head('Day Born count')}
-      <label class="f">Sunday<input type="date" id="dsun" value="${lastSunday()}"></label>
+      ${sv?`${ctxLine(sv)}<input type="hidden" id="dsun" value="${sv.service_date}">`:`<label class="f">Date<input type="date" id="dsun" value="${lastSunday()}"></label>`}
       <div>${DAYS.map((d,i)=>`<div class="day"><div><b>${d.d==='Unknown'?'No day name':d.d}</b><small>${d.f?`${d.m} · ${d.f}`:'Day not known'}${last?` · last time ${last.amts[i]}`:''}</small></div><input type="number" inputmode="decimal" min="0" id="day${i}" data-day="${i}" placeholder="0.00" value="${esc(S.sunday[i])}" aria-label="${d.d} amount"></div>`).join('')}</div>
       <div class="row2"><label class="f">Counted by<input type="text" id="c1" placeholder="Counter 1"></label><label class="f">&nbsp;<input type="text" id="c2" placeholder="Counter 2"></label></div>
-      <div class="sumbar"><div><span>Day Born total</span><b class="num" id="stotal">${fmt(total)}</b></div><button class="btn light" data-act="savesunday"${busy}>Save count</button></div></div>`; }
+      <div class="sumbar"><div><span>Day Born total</span><b class="num" id="stotal">${fmt(total)}</b></div><button class="btn light" data-act="savesunday" data-id="${sv?.id||''}"${busy}>Save count</button></div></div>`; }
+  case 'newservice': case 'editservice': { const s=sh.t==='editservice'?svcById(sh.id):null, pr=progById(sh.program||s?.program_id);
+    const kinds=svcKinds(), kind=s?.kind||kinds[0], other=s&&!kinds.includes(s.kind);
+    const defDate=s?.service_date||(pr?(todayISO()>=pr.starts_on&&todayISO()<=pr.ends_on?todayISO():pr.starts_on):(new Date().getDay()===0?todayISO():todayISO()));
+    return `<div class="sheet" role="dialog" aria-label="Service">${head(s?'Edit service':'New service')}
+      ${s?'':unitPicker('svu', pr?.unit_id||mainUnit()?.id)}
+      <div class="row2"><label class="f">Date<input type="date" id="svd" value="${defDate}"></label>
+      <label class="f">Type<select id="svk">${kinds.map(k=>`<option ${k===kind?'selected':''}>${esc(k)}</option>`).join('')}<option value="__other" ${other?'selected':''}>Other…</option></select></label></div>
+      <label class="f">Name <span class="muted">(optional, e.g. “Harvest Thanksgiving Service”${other?'':' or type the other service type'})</span><input type="text" id="svt" value="${esc(s?.title||(other?s.kind:''))}"></label>
+      ${progSelect('svp', pr?.id)}
+      <button class="btn" data-act="${s?'updservice':'createservice'}" data-id="${s?.id||''}"${busy}>${s?'Save':'Create service'}</button></div>`; }
+  case 'program': { const p=progById(sh.id), pf=progFields();
+    return `<div class="sheet" role="dialog" aria-label="Program">${head(p?'Edit program':'New program')}
+      ${p?'':unitPicker('pru')}
+      <label class="f">Name<input type="text" id="prn" value="${esc(p?.name||'')}" placeholder="e.g. Annual Convention ${YEAR}"></label>
+      <div class="row2"><label class="f">From<input type="date" id="prs" value="${p?.starts_on||todayISO()}"></label><label class="f">To<input type="date" id="pre" value="${p?.ends_on||todayISO()}"></label></div>
+      <label class="f">Budget (${curSym()}) <span class="muted">(optional)</span><input type="number" id="prb" inputmode="decimal" value="${p?.budget??''}"></label>
+      <details ${p&&(p.theme||p.speakers||p.team||p.venue||p.notes)?'open':''}><summary class="link" style="cursor:pointer">More details (optional)</summary><div class="stack" style="margin-top:8px">
+        ${pf.theme?`<label class="f">Theme<input type="text" id="prt" value="${esc(p?.theme||'')}"></label>`:''}
+        ${pf.speakers?`<label class="f">Speakers <span class="muted">(one per line)</span><textarea id="prsp">${esc(p?.speakers||'')}</textarea></label>`:''}
+        ${pf.team?`<label class="f">Organising team <span class="muted">(one per line)</span><textarea id="prtm">${esc(p?.team||'')}</textarea></label>`:''}
+        ${pf.venue?`<label class="f">Venue<input type="text" id="prv" value="${esc(p?.venue||'')}"></label>`:''}
+        <label class="f">Notes<textarea id="prno">${esc(p?.notes||'')}</textarea></label>
+      </div></details>
+      <button class="btn" data-act="saveprog" data-id="${p?.id||''}"${busy}>${p?'Save':'Create program'}</button></div>`; }
   case 'member': case 'editmember': { const m=sh.t==='editmember'?S.members.find(x=>x.id===sh.id):null; const mine=m?unitsOfMember(m.id):[S.view!=='all'?S.view:mainUnit()?.id];
     return `<div class="sheet" role="dialog" aria-label="Member">${head(m?'Edit member':'Add a member')}
       <label class="f">Full name<input type="text" id="mn" value="${esc(m?.full_name||'')}"></label>
@@ -650,9 +817,9 @@ function sheetHTML(){
 }
 
 /* ===================== Render ===================== */
-const MAIN = () => [['home','⌂','Home'],['members','👥','Members'],...(canDayBorn()?[['dayborn','☀','Day Born']]:[]),['spend','⇄','Expenses'],['budget','◔','Budget']];
-const MORE = () => [...(feat('pledges')?[['fund','◎','Fundraising']]:[]),['reports','▤','Reports'],...(isApprover()?[['activity','↺','Activity']]:[]),['structure','⋔','Structure'],['settings','⚙','Settings']];
-const TITLES = {home:'Home',members:'Members',dayborn:'Day Born',spend:'Expenses',budget:'Budget',fund:'Fundraising',reports:'Reports',activity:'Activity',structure:'Structure',settings:'Settings'};
+const MAIN = () => [['home','⌂','Home'],['services','▦','Services'],['members','👥','Members'],['spend','⇄','Expenses'],['budget','◔','Budget']];
+const MORE = () => [...(canDayBorn()?[['dayborn','☀','Day Born']]:[]),...(feat('pledges')?[['fund','◎','Fundraising']]:[]),['reports','▤','Reports'],...(isApprover()?[['activity','↺','Activity']]:[]),['structure','⋔','Structure'],['settings','⚙','Settings']];
+const TITLES = {home:'Home',services:'Services & programs',members:'Members',dayborn:'Day Born',spend:'Expenses',budget:'Budget',fund:'Fundraising',reports:'Reports',activity:'Activity',structure:'Structure',settings:'Settings'};
 function render(){
   const root=$('root'), tabsEl=$('tabs'), layer=$('layer');
   const token = new URLSearchParams(location.search).get('r');
@@ -663,7 +830,7 @@ function render(){
   const desk=isDesk(); document.body.dataset.layout=desk?'desk':'phone';
   if(S.tab==='dayborn'&&!canDayBorn()) S.tab='home';
   if(S.tab==='fund'&&!feat('pledges')) S.tab='home';
-  const views={home,members:membersView,dayborn:dayBornView,spend:spendView,budget:budgetView,fund:fundView,reports:reportsView,activity:activityView,structure:structureView,settings:settingsView};
+  const views={home,services:servicesView,members:membersView,dayborn:dayBornView,spend:spendView,budget:budgetView,fund:fundView,reports:reportsView,activity:activityView,structure:structureView,settings:settingsView};
   const unitSel=S.units.length>1?`<select class="unitsel" id="unitsel" aria-label="Unit">${['all',...S.units.map(u=>u.id)].map(id=>`<option value="${id}" ${S.view===id?'selected':''}>${id==='all'?esc(S.me?.unit_id?'All my units':C().all):esc(uName(id))}</option>`).join('')}</select>`:`<span class="chip">${esc(S.units[0]?.name||'')}</span>`;
   const navBtn=([k,i,l])=>`<button data-act="tab" data-id="${k}" ${S.tab===k?'aria-current="page"':''}><i>${i}</i>${l}</button>`;
   const content=views[S.tab]();
@@ -711,7 +878,7 @@ document.addEventListener('click', async e=>{
       catch(err){ toast(errText(err)); } finally{ S.busy=false; } break; }
     /* navigation */
     case 'layout': S.forcePhone=id==='phone'; break;
-    case 'tab': S.tab=id; S.member=S.payee=S.camp=null; S.group=null; S.sheet=null; top0(); break;
+    case 'tab': S.tab=id; S.member=S.payee=S.camp=null; S.group=null; S.sheet=null; S.service=S.program=null; top0(); break;
     case 'view': S.view=id; top0(); break;
     case 'member': S.member=id||null; top0(); break;
     case 'gomember': S.tab='members'; S.member=id; S.group=null; top0(); break;
@@ -724,15 +891,51 @@ document.addEventListener('click', async e=>{
     case 'hshow': S.showHigher=true; break;
     case 'hcancel': S.showHigher=false; break;
     case 'bedit': S.editB=id; break;
-    case 'sheet': S.sheet={t:el.dataset.t,id,member:el.dataset.member,fund:el.dataset.fund}; if(el.dataset.t==='dayentry') S.sunday=DAYS.map(()=> ''); break;
+    case 'sheet': S.sheet={t:el.dataset.t,id,member:el.dataset.member,fund:el.dataset.fund,service:el.dataset.service,program:el.dataset.program}; if(el.dataset.t==='dayentry') S.sunday=DAYS.map(()=> ''); break;
+    /* services & programs */
+    case 'svctab': S.svcTab=id; break;
+    case 'opensvc': S.tab='services'; S.service=id; S.program=null; S.svcDraft={}; S.sheet=null; top0(); break;
+    case 'closesvc': { const s=svcById(S.service); S.service=null; S.svcDraft={}; if(s?.program_id&&S.lastProg===s.program_id){ S.program=s.program_id; } top0(); break; }
+    case 'openprog': S.tab='services'; S.svcTab='programs'; S.program=id; S.lastProg=id; S.service=null; S.sheet=null; top0(); break;
+    case 'closeprog': S.program=null; S.lastProg=null; top0(); break;
+    case 'createservice': case 'updservice': { const d=val('svd'); let k=val('svk'), t=val('svt').trim(); if(!d){ toast('Choose the date.'); return; }
+      if(k==='__other'){ if(!t){ toast('Type the service type in the Name box.'); return; } k=t; t=''; }
+      if(a==='updservice') return act(()=>must(sb.from('services').update({service_date:d,kind:k,title:t||null,program_id:val('svp')||null}).eq('id',id)),'Service updated.');
+      let row; return act(async()=>{ row=await must(sb.from('services').insert({unit_id:val('svu'),service_date:d,kind:k,title:t||null,program_id:val('svp')||null}).select().single()); },'Service created. Now record its money.').then(()=>{ if(row){ S.tab='services'; S.service=row.id; S.svcDraft={}; render(); } }); }
+    case 'saveprog': { const n=val('prn').trim(), s=val('prs'), e2=val('pre'); if(!n||!s||!e2){ toast('Enter the name and both dates.'); return; } if(e2<s){ toast('The end date is before the start date.'); return; }
+      const g=k=>{ const x=$(k); return x?(x.value.trim()||null):undefined; }, b=val('prb');
+      const rec={name:n,starts_on:s,ends_on:e2,budget:b===''?null:Math.max(0,parseFloat(b)||0),notes:g('prno')};
+      [['theme','prt'],['speakers','prsp'],['team','prtm'],['venue','prv']].forEach(([f,i])=>{ const v=g(i); if(v!==undefined) rec[f]=v; });
+      if(id) return act(()=>must(sb.from('programs').update(rec).eq('id',id)),'Program saved.');
+      let row; return act(async()=>{ row=await must(sb.from('programs').insert({...rec,unit_id:val('pru')}).select().single()); },`${n} created.`).then(()=>{ if(row){ S.tab='services'; S.svcTab='programs'; S.program=row.id; S.lastProg=row.id; render(); } }); }
+    case 'savesvc': { const s=svcById(id); if(!s) return; const d=S.svcDraft, rows=[];
+      svcItems().filter(it=>it!=='Day Born').forEach(it=>{ const v=Math.round((parseFloat(d[it])||0)*100)/100; if(v>0) rows.push({unit_id:s.unit_id,txn_date:s.service_date,category:it,amount:v,service_id:s.id,program_id:s.program_id,method:'Cash',campaign_id:it==='Fundraising'?(d.__camp||null):null,note:s.title||s.kind}); });
+      const oa=Math.round((parseFloat(d.__otherAmt)||0)*100)/100, oc=(d.__otherCat||'').trim();
+      if(oa>0){ if(!oc){ toast('Type what the “Other” amount is for.'); return; } rows.push({unit_id:s.unit_id,txn_date:s.service_date,category:oc,amount:oa,service_id:s.id,program_id:s.program_id,method:'Cash',note:s.title||s.kind}); }
+      const c1=val('sc1').trim(), c2=val('sc2').trim(), cChanged=c1!==(s.counter1||'')||c2!==(s.counter2||'');
+      if(!rows.length&&!cChanged){ toast('Enter at least one amount.'); return; }
+      return act(async()=>{ if(rows.length) await must(sb.from('transactions').insert(rows)); if(cChanged) await must(sb.from('services').update({counter1:c1||null,counter2:c2||null}).eq('id',s.id)); S.svcDraft={}; }, rows.length?`Saved ${rows.length} item${rows.length>1?'s':''} · ${fmt(rows.reduce((a,r)=>a+r.amount,0))}.`:'Saved.'); }
+    case 'sharesvc': { const s=svcById(id), tx=svcTx(id), ex=svcEx(id).filter(counted), by={}; tx.forEach(t=>by[t.category]=(by[t.category]||0)+num(t.amount));
+      const text=`${S.org.name} — ${s.title||s.kind}, ${dLong(s.service_date)}\n`+Object.entries(by).map(([k,v])=>`${k}: ${fmt(v)}`).join('\n')+`\nTotal income: ${fmt(sumAmt(tx))}\nExpenses: ${fmt(sumAmt(ex))}\nBalance: ${fmt(sumAmt(tx)-sumAmt(ex))}`;
+      window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank','noopener'); return; }
+    case 'shareprog': { const p=progById(id), tx=progTx(p), ex=progEx(p).filter(counted);
+      const text=`${S.org.name} — ${p.name} (${dLong(p.starts_on)} – ${dLong(p.ends_on)})\nIncome: ${fmt(sumAmt(tx))}\nExpenses: ${fmt(sumAmt(ex))}\nBalance: ${fmt(sumAmt(tx)-sumAmt(ex))}`;
+      window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank','noopener'); return; }
+    case 'saveitems': { const items=[...document.querySelectorAll('input[name=svi]:checked')].map(x=>x.value), extra=val('sviadd').split(',').map(s=>s.trim()).filter(Boolean);
+      const all=[...new Set([...items,...extra])]; if(!all.length){ toast('Keep at least one item.'); return; }
+      const kinds=val('svkinds').split('\n').map(s=>s.trim()).filter(Boolean);
+      const pf={}; ['theme','speakers','team','venue'].forEach(k=>pf[k]=chk('pf_'+k));
+      return act(()=>must(sb.from('orgs').update({features:{...(S.org.features||{}),service_items:all,service_kinds:kinds.length?kinds:svcKinds(),program_fields:pf}}).eq('id',S.org.id)),'Saved.'); }
     case 'close': case 'bg': S.sheet=null; break;
     case 'copy': try{ await navigator.clipboard.writeText(id); toast('Link copied.'); }catch(err){ toast('Select the link and copy it.'); } return;
     case 'print': window.print(); return;
     /* money */
     case 'saveincome': { const amt=amountOf('ia'), cat=val('it').trim(), unit=val('iu'); if(!amt||!cat||!unit){ toast('Enter the type and an amount above 0.'); return; }
-      let saved; return act(async()=>{ saved=await must(sb.from('transactions').insert({unit_id:unit,category:cat,amount:amt,member_id:val('im')||null,txn_date:val('id')||todayISO(),method:val('ipm'),note:val('in')||null}).select().single()); }, 'Saved.').then(()=>{ if(saved){ S.sheet={t:'txn',id:saved.id}; render(); } }); }
+      const sv=svcById(S.sheet?.service), prog=sv?sv.program_id:(val('ip')||null);
+      let saved; return act(async()=>{ saved=await must(sb.from('transactions').insert({unit_id:unit,category:cat,amount:amt,member_id:val('im')||null,txn_date:val('id')||todayISO(),method:val('ipm'),note:val('in')||null,service_id:sv?.id||null,program_id:prog}).select().single()); }, 'Saved.').then(()=>{ if(saved){ S.sheet={t:'txn',id:saved.id}; render(); } }); }
     case 'saveexp': { const amt=amountOf('xa'), to=val('xto').trim(), what=val('xline').trim(); if(!amt||!to||!what){ toast('Enter who was paid, what for, and an amount.'); return; }
-      return act(()=>must(sb.from('expenses').insert({unit_id:val('xu'),paid_to:to,purpose:what,amount:amt,exp_date:val('xd')||todayISO(),fund:val('xf')||'General fund',budget_id:val('xb')||null,note:val('xn')||null})),'Expense saved. Waiting for approval.'); }
+      const sv=svcById(S.sheet?.service), prog=sv?sv.program_id:(val('xp')||null);
+      return act(()=>must(sb.from('expenses').insert({unit_id:val('xu'),paid_to:to,purpose:what,amount:amt,exp_date:val('xd')||todayISO(),fund:val('xf')||'General fund',budget_id:val('xb')||null,note:val('xn')||null,service_id:sv?.id||null,program_id:prog})),'Expense saved. Waiting for approval.'); }
     case 'savepay': { const l=S.lines.find(x=>x.id===id), p=S.payees.find(x=>x.id===l.payee_id), amt=amountOf('pa'); if(!amt){ toast('Enter an amount above 0.'); return; }
       return act(()=>must(sb.from('expenses').insert({unit_id:p.unit_id,payee_id:p.id,line_id:l.id,paid_to:p.name,purpose:l.name,amount:amt,exp_date:val('pd')||todayISO(),fund:val('pf')||'General fund',budget_id:l.budget_id,note:val('pn')||null})),`${l.name} recorded. Waiting for approval.`); }
     case 'approve': return act(()=>must(sb.from('expenses').update({status:'approved'}).eq('id',id)),'Approved. Now send the confirmation link.').then(()=>{ S.sheet={t:'expense',id}; render(); });
@@ -742,7 +945,8 @@ document.addEventListener('click', async e=>{
     case 'voidtx': { const r=val('vreason').trim(); if(!r){ toast('Write the reason first.'); return; } return act(()=>must(sb.from('transactions').update({voided:true,void_reason:r}).eq('id',id)),'Entry voided.'); }
     case 'savesunday': { const amts=DAYS.map((_,i)=>Math.round((parseFloat(S.sunday[i])||0)*100)/100), tot=amts.reduce((a,b)=>a+b,0), sun=val('dsun');
       if(!tot){ toast('Enter at least one group amount.'); return; } if(!sun){ toast('Choose the Sunday.'); return; }
-      return act(()=>must(sb.rpc('save_dayborn',{p_unit:mainUnit().id,p_sunday:sun,p_amounts:amts,p_c1:val('c1'),p_c2:val('c2')})),`Saved ${fmt(tot)} for ${dLong(sun)}.`).then(()=>{ S.tab='dayborn'; S.group=null; render(); }); }
+      const sv=svcById(id), unit=sv?sv.unit_id:mainUnit().id;
+      return act(()=>must(sb.rpc('save_dayborn',{p_unit:unit,p_sunday:sun,p_amounts:amts,p_c1:val('c1'),p_c2:val('c2'),p_service:sv?.id||null})),`Saved Day Born ${fmt(tot)} for ${dLong(sun)}.`).then(()=>{ if(!sv){ S.tab='dayborn'; S.group=null; } render(); }); }
     case 'savepayee': { const n=val('pyn').trim(); if(!n){ toast('Type a name first.'); return; }
       let row; return act(async()=>{ row=await must(sb.from('payees').insert({unit_id:val('pyu'),kind:id,name:n,note:val('pynote')||null}).select().single()); },`${n} added. Now add their lines.`).then(()=>{ if(row){ S.payee=row.id; render(); } }); }
     case 'saveline': { const n=val('ln').trim(), amt=amountOf('la'); if(!n||!amt){ toast('Enter a name and an amount.'); return; }
@@ -798,10 +1002,12 @@ function exportCSV(){
 }
 document.addEventListener('input', e=>{
   if(e.target.id==='msearch'){ S.q=e.target.value; const el=$('mlist'); if(el) el.innerHTML=memberList(membersInScope()); }
+  if(e.target.dataset.svc!==undefined){ S.svcDraft[e.target.dataset.svc]=e.target.value; const el=$('svctotal'); if(el){ const d=S.svcDraft; el.textContent=fmt(Object.entries(d).filter(([k])=>!k.startsWith('__')).reduce((a,[,v])=>a+(parseFloat(v)||0),0)+(parseFloat(d.__otherAmt)||0)); } }
   if(e.target.dataset.day!==undefined){ S.sunday[+e.target.dataset.day]=e.target.value; const el=$('stotal'); if(el) el.textContent=fmt(S.sunday.reduce((s,v)=>s+(parseFloat(v)||0),0)); }
 });
 document.addEventListener('change', async e=>{
   if(e.target.id==='unitsel'){ S.view=e.target.value; S.member=S.payee=S.camp=null; S.group=null; render(); }
+  if(e.target.id==='svccamp'){ S.svcDraft.__camp=e.target.value; }
   if(e.target.id==='rmonth'){ S.reportMonth=e.target.value||S.reportMonth; render(); }
   if(e.target.id==='orgsel'){ try{ localStorage.setItem('sikabook.org',e.target.value); }catch(err){} await loadOrgs(); S.view='all'; await refresh(); }
   if(e.target.dataset.feat){ const f={...(S.org.features||{}),[e.target.dataset.feat]:e.target.checked}; act(()=>must(sb.from('orgs').update({features:f}).eq('id',S.org.id)),'Saved.'); }

@@ -261,6 +261,49 @@ create table if not exists public.audit_log (
 );
 create index if not exists audit_org_idx on public.audit_log(org_id, at desc);
 
+-- ---------- Services & programs (v2) ----------
+-- A program: an event over a date range (convention, harvest week, crusade…)
+create table if not exists public.programs (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.orgs(id) on delete cascade,
+  unit_id uuid not null references public.units(id),
+  name text not null,
+  starts_on date not null,
+  ends_on date not null,
+  theme text,
+  speakers text,
+  team text,
+  venue text,
+  budget numeric(14,2) check (budget is null or budget >= 0),
+  notes text,
+  created_by uuid default auth.uid() references auth.users(id),
+  created_at timestamptz not null default now(),
+  check (ends_on >= starts_on)
+);
+-- A service: one gathering on one date (Sunday service, evening service, midweek…)
+create table if not exists public.services (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.orgs(id) on delete cascade,
+  unit_id uuid not null references public.units(id),
+  service_date date not null,
+  kind text not null,
+  title text,
+  program_id uuid references public.programs(id),
+  counter1 text,
+  counter2 text,
+  notes text,
+  created_by uuid default auth.uid() references auth.users(id),
+  created_at timestamptz not null default now()
+);
+create index if not exists services_unit_date_idx on public.services(unit_id, service_date);
+alter table public.transactions add column if not exists service_id uuid references public.services(id);
+alter table public.transactions add column if not exists program_id uuid references public.programs(id);
+alter table public.expenses add column if not exists service_id uuid references public.services(id);
+alter table public.expenses add column if not exists program_id uuid references public.programs(id);
+alter table public.dayborn_counts add column if not exists service_id uuid references public.services(id);
+-- Day Born is no longer fixed to one per date: it belongs to a service
+alter table public.dayborn_counts drop constraint if exists dayborn_counts_unit_id_sunday_key;
+
 -- ---------- Triggers ----------
 -- org_id always comes from the unit (clients never choose it)
 create or replace function public.set_org_from_unit() returns trigger
@@ -274,7 +317,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['transactions','dayborn_counts','budgets','targets','campaigns','payees','expenses'] loop
+  foreach t in array array['transactions','dayborn_counts','budgets','targets','campaigns','payees','expenses','programs','services'] loop
     execute format('drop trigger if exists a_set_org on public.%I', t);
     execute format('create trigger a_set_org before insert on public.%I for each row execute function public.set_org_from_unit()', t);
   end loop;
@@ -335,6 +378,7 @@ begin
   if o is null and tg_table_name = 'pledges' then select org_id into o from campaigns where id = (j->>'campaign_id')::uuid; end if;
   if tg_table_name = 'orgs' then o := (j->>'id')::uuid; end if;
   s := coalesce(j->>'category', j->>'purpose', j->>'name', j->>'full_name', j->>'email', '');
+  if tg_table_name = 'services' then s := coalesce(nullif(j->>'title',''), j->>'kind') || ' on ' || (j->>'service_date'); end if;
   if j ? 'paid_to' then s := (j->>'paid_to') || ' — ' || s; end if;
   if tg_table_name = 'dayborn_counts' then s := 'Day Born count for ' || (j->>'sunday'); end if;
   if (j ? 'amount') and (j->>'amount') is not null then s := s || ' · ' || (j->>'amount'); end if;
@@ -355,7 +399,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['orgs','units','members','transactions','dayborn_counts','budgets','targets','campaigns','pledges','payees','payee_lines','expenses','invites'] loop
+  foreach t in array array['orgs','units','members','transactions','dayborn_counts','budgets','targets','campaigns','pledges','payees','payee_lines','expenses','invites','programs','services'] loop
     execute format('drop trigger if exists z_audit on public.%I', t);
     execute format('create trigger z_audit after insert or update on public.%I for each row execute function public.log_change()', t);
   end loop;
@@ -378,6 +422,8 @@ alter table public.payees enable row level security;
 alter table public.payee_lines enable row level security;
 alter table public.expenses enable row level security;
 alter table public.audit_log enable row level security;
+alter table public.programs enable row level security;
+alter table public.services enable row level security;
 
 -- drop old policies so this file can be re-run
 do $$
@@ -455,6 +501,14 @@ create policy ex_upd on public.expenses for update to authenticated using (can_w
 
 create policy log_sel on public.audit_log for select to authenticated using (is_approver(org_id));
 
+create policy prg_sel on public.programs for select to authenticated using (can_see_unit(unit_id));
+create policy prg_ins on public.programs for insert to authenticated with check (can_write_unit(unit_id));
+create policy prg_upd on public.programs for update to authenticated using (can_write_unit(unit_id));
+
+create policy svc_sel on public.services for select to authenticated using (can_see_unit(unit_id));
+create policy svc_ins on public.services for insert to authenticated with check (can_write_unit(unit_id));
+create policy svc_upd on public.services for update to authenticated using (can_write_unit(unit_id));
+
 -- ---------- RPCs ----------
 create or replace function public.create_org(
   p_name text, p_kind text, p_currency text, p_features jsonb,
@@ -508,22 +562,29 @@ begin
   return mid;
 end $$;
 
+drop function if exists public.save_dayborn(uuid, date, numeric[], text, text);
 create or replace function public.save_dayborn(
-  p_unit uuid, p_sunday date, p_amounts numeric[], p_c1 text, p_c2 text
+  p_unit uuid, p_sunday date, p_amounts numeric[], p_c1 text, p_c2 text, p_service uuid default null
 ) returns uuid language plpgsql security definer set search_path = public as $$
-declare t uuid; total numeric; d uuid;
+declare t uuid; total numeric; d uuid; prog uuid;
 begin
   if not can_write_unit(p_unit) then raise exception 'You cannot record Day Born for this unit'; end if;
   if array_length(p_amounts,1) <> 8 then raise exception 'Day Born needs 8 group amounts'; end if;
   select coalesce(sum(x),0) into total from unnest(p_amounts) x;
   if total <= 0 then raise exception 'Enter at least one amount'; end if;
-  if exists (select 1 from dayborn_counts where unit_id = p_unit and sunday = p_sunday) then
-    raise exception 'Day Born for this Sunday is already saved';
+  if p_service is not null then
+    if exists (select 1 from dayborn_counts where service_id = p_service) then
+      raise exception 'Day Born for this service is already saved';
+    end if;
+    select service_date, program_id into p_sunday, prog from services where id = p_service and unit_id = p_unit;
+    if p_sunday is null then raise exception 'That service belongs to another unit'; end if;
+  elsif exists (select 1 from dayborn_counts where unit_id = p_unit and sunday = p_sunday and service_id is null) then
+    raise exception 'Day Born for this date is already saved';
   end if;
-  insert into transactions(unit_id, txn_date, category, amount, note, method)
-  values (p_unit, p_sunday, 'Day Born', total, 'Day Born offering (8 groups)', 'Cash') returning id into t;
-  insert into dayborn_counts(unit_id, sunday, amounts, counter1, counter2, txn_id)
-  values (p_unit, p_sunday, p_amounts, nullif(p_c1,''), nullif(p_c2,''), t) returning id into d;
+  insert into transactions(unit_id, txn_date, category, amount, note, method, service_id, program_id)
+  values (p_unit, p_sunday, 'Day Born', total, 'Day Born offering (8 groups)', 'Cash', p_service, prog) returning id into t;
+  insert into dayborn_counts(unit_id, sunday, amounts, counter1, counter2, txn_id, service_id)
+  values (p_unit, p_sunday, p_amounts, nullif(p_c1,''), nullif(p_c2,''), t, p_service) returning id into d;
   return d;
 end $$;
 

@@ -22,10 +22,10 @@ const DAYS = [
 const TERMS = {
   church:{top:'Station', sub:'Society', subs:'societies', all:'Whole station', higher:['Circuit','District','National'], tithe:'Tithe', thanks:'Thanksgiving',
     income:['Offering','Tithe','Thanksgiving','Monthly dues','Welfare dues','Funeral dues','Harvest','Contribution','Fundraising','Other'],
-    roles:{admin:'Admin',finsec:'Financial Secretary',treasurer:'Society treasurer',viewer:'Viewer'}},
+    roles:{admin:'Super admin',finsec:'Financial Secretary',treasurer:'Treasurer',viewer:'Viewer'}},
   org:{top:'Head office', sub:'Department', subs:'departments', all:'Whole organization', higher:['Region','Country','Group'], tithe:'Monthly contributions', thanks:'Special donations',
     income:['Donations','Monthly contributions','Special donations','Monthly dues','Welfare dues','Sales','Grants','Fundraising','Other'],
-    roles:{admin:'Admin',finsec:'Treasurer (approver)',treasurer:'Department treasurer',viewer:'Viewer'}},
+    roles:{admin:'Super admin',finsec:'Finance officer (approver)',treasurer:'Treasurer',viewer:'Viewer'}},
 };
 const FUNDS = ['General fund','Day Born fund','Welfare fund','Building fund','Harvest fund'];
 
@@ -33,7 +33,7 @@ const FUNDS = ['General fund','Day Born fund','Welfare fund','Building fund','Ha
 const S = {
   session:null, user:null, orgs:[], org:null, me:null, loading:true, authMode:'signin', authMsg:'', recovery:false,
   units:[], orgUsers:[], invites:[], members:[], mu:[], txs:[], counts:[], budgets:[], targets:[], payees:[], lines:[], expenses:[], camps:[], pledges:[], logs:[],
-  services:[], programs:[], service:null, program:null, svcTab:'services', svcDraft:{},
+  services:[], programs:[], service:null, program:null, svcTab:'services', svcDraft:{}, photo:null,
   view:'all', tab:'home', member:null, payee:null, group:null, camp:null, q:'', showAll:false, showOwing:false, spendKind:'all', editB:null,
   sunday:DAYS.map(()=>''), sheet:null, forcePhone:false, showHigher:false, reportMonth: todayISO().slice(0,7), busy:false,
 };
@@ -453,6 +453,20 @@ function budgetView(){
     </div></div>
   </div>`;
 }
+function accessLabel(x){ if(!x.unit_id) return 'whole '+(isChurch()?'church':'organization'); const u=uName(x.unit_id), kids=childrenOf(x.unit_id).length; return x.include_children&&kids? `${u} + the ${kids} group${kids>1?'s':''} under it` : `${u} only`; }
+function accessFields(x){ const unit=x?(x.unit_id||''):'', role=x?.role||'treasurer', kids=!!x?.include_children;
+  return `<label class="f">What can they see?<select id="ivu"><option value="" ${unit===''?'selected':''}>Everything (whole ${isChurch()?'church':'organization'})</option>${S.units.map(u=>`<option value="${u.id}" ${unit===u.id?'selected':''}>${esc(u.name)} only</option>`).join('')}</select></label>
+    <label class="toggle"><span>Also see the groups under that unit<small>For example a Station login that should also see every society. Leave it off so they see only that one unit.</small></span><input type="checkbox" id="ivk" ${kids?'checked':''}></label>
+    <label class="f">What can they do?<select id="ivr">
+      <option value="treasurer" ${role==='treasurer'?'selected':''}>Record income & expenses</option>
+      <option value="finsec" ${role==='finsec'?'selected':''}>Record and approve expenses (${esc(ROLE_LABEL('finsec'))})</option>
+      <option value="viewer" ${role==='viewer'?'selected':''}>Only look (viewer)</option>
+      <option value="admin" ${role==='admin'?'selected':''}>Super admin: everything, including settings and people</option></select></label>
+    <div class="note">Example: the Choir Treasurer gets “Choir only” and “Record income & expenses”. They will not see the Station or any other society.</div>`; }
+function readAccess(){ const r=val('ivr'), u=val('ivu')||null, k=chk('ivk');
+  if(r==='admin'&&u){ toast('A Super admin must see everything. Choose “Everything”, or pick another role.'); return null; }
+  return {role:r, unit_id:u, include_children:u?k:false}; }
+function inviteMessage(v){ return `Hello ${v.display_name||''},\nYou now have a SikaBook account for ${S.org.name} (${accessLabel(v)}).\n1. Open ${appLink()}\n2. Tap “Create an account” and use this email: ${v.email}\n3. Confirm your email, then sign in.\nOn your phone, choose “Add to Home Screen” so it opens like an app.`; }
 function ctxLine(sv,pr){ if(sv) return `<div class="note">For <b>${esc(svcName(sv))}</b>${sv.program_id?' · '+esc(progById(sv.program_id)?.name||''):''}</div>`; if(pr) return `<div class="note">For program <b>${esc(pr.name)}</b></div>`; return ''; }
 function progSelect(id, preset){ const ps=S.programs.filter(p=>inScope(p.unit_id)); if(!ps.length) return `<input type="hidden" id="${id}" value="">`;
   return `<label class="f">Program / event <span class="muted">(optional)</span><select id="${id}"><option value="">— None —</option>${ps.map(p=>`<option value="${p.id}" ${p.id===preset?'selected':''}>${esc(p.name)} (${dShort(p.starts_on)}–${dShort(p.ends_on)})</option>`).join('')}</select></label>`; }
@@ -544,6 +558,8 @@ function serviceDetail(s){
     </div>
     <div class="grid2"><div class="col">
       ${canWrite()?`<div class="card"><div class="cardhead"><h3>Record this service's money</h3>${isAdmin()?`<button class="link" data-act="tab" data-id="settings">Change items</button>`:''}</div>
+        <label class="btn light" style="display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer">📷 Read a photo of my written sheet<input type="file" id="photoin" data-service="${s.id}" accept="image/*" capture="environment" hidden></label>
+        <span class="muted">Take a clear photo of your written record. SikaBook reads the numbers and shows them to you to check before anything is saved. Or type them below.</span>
         <div>${itemRows}
           <div class="day"><div><b>Other</b><input type="text" data-svc="__otherCat" value="${esc(d.__otherCat||'')}" placeholder="e.g. Harvest, Welfare" style="margin-top:6px;padding:6px 8px"></div>${inp('__otherAmt')}</div>
         </div>
@@ -668,8 +684,8 @@ function settingsView(){
       <div class="checks">${Object.entries(PROG_LABEL).map(([k,l])=>`<label><input type="checkbox" id="pf_${k}" ${progFields()[k]?'checked':''}> ${l}</label>`).join('')}</div>
       <button class="btn" style="align-self:flex-start" data-act="saveitems">Save</button></div>
     <div class="card"><h3>People who can sign in</h3><div class="list">
-      ${S.orgUsers.map(u=>`<div class="item"><span class="av">${esc((u.display_name||u.email||'?')[0].toUpperCase())}</span><span class="t"><b>${esc(u.display_name||u.email)}</b><small>${esc(ROLE_LABEL(u.role))} · ${u.unit_id?esc(uName(u.unit_id))+' only':'all units'}${u.user_id===S.user.id?' · you':''}</small></span>${u.user_id!==S.user.id?`<button class="btn small ghost" data-act="removeuser" data-id="${u.id}">Remove</button>`:''}</div>`).join('')}
-      ${S.invites.map(v=>`<div class="item"><span class="av">✉</span><span class="t"><b>${esc(v.display_name||v.email)}</b><small>Invited · ${esc(ROLE_LABEL(v.role))} · ${v.unit_id?esc(uName(v.unit_id))+' only':'all units'} · waiting for them to create an account with ${esc(v.email)}</small></span><button class="btn small ghost" data-act="cancelinvite" data-id="${v.id}">Cancel</button></div>`).join('')}
+      ${S.orgUsers.map(u=>`<div class="item"><span class="av">${esc((u.display_name||u.email||'?')[0].toUpperCase())}</span><span class="t"><b>${esc(u.display_name||u.email)}</b><small>${esc(ROLE_LABEL(u.role))} · ${esc(accessLabel(u))}${u.user_id===S.user.id?' · you':''}</small></span>${u.user_id!==S.user.id?`<button class="btn small ghost" data-act="sheet" data-t="access" data-id="${u.id}">Change</button>`:''}</div>`).join('')}
+      ${S.invites.map(v=>`<div class="item"><span class="av">✉</span><span class="t"><b>${esc(v.display_name||v.email)}</b><small>Invited · ${esc(ROLE_LABEL(v.role))} · ${esc(accessLabel(v))} · waiting for them to sign up with ${esc(v.email)}</small></span><span class="btnrow"><button class="btn small ghost" data-act="sheet" data-t="invited" data-id="${v.id}">Send link</button><button class="btn small ghost" data-act="cancelinvite" data-id="${v.id}">Cancel</button></span></div>`).join('')}
     </div><button class="btn ghost" style="align-self:flex-start" data-act="sheet" data-t="invite">＋ Invite someone</button></div>`:''}
     <div class="card"><h3>Share the app</h3><span class="muted">Send this link to people you invite. On a phone, open it and choose “Add to Home Screen”.</span><div class="linkbox">${esc(appLink())}</div><button class="btn small ghost" style="align-self:flex-start" data-act="copy" data-id="${esc(appLink())}">Copy link</button></div>
     ${S.orgs.length>1?`<div class="card"><h3>Switch</h3><select id="orgsel">${S.orgs.map(r=>`<option value="${r.org_id}" ${r.org_id===o.id?'selected':''}>${esc(r.orgs.name)}</option>`).join('')}</select></div>`:''}
@@ -805,13 +821,38 @@ function sheetHTML(){
       <label class="f">Name<input type="text" id="un" value="${esc(u.name)}"></label>
       <label class="f">Starting balance (${curSym()}) <span class="muted">— money it had before using SikaBook</span><input type="number" id="ub" value="${num(u.opening_balance)}" inputmode="decimal"></label>
       <button class="btn" data-act="saveunit" data-id="${u.id}"${busy}>Save</button></div>`; }
-  case 'invite': return `<div class="sheet" role="dialog" aria-label="Invite">${head('Invite someone')}
-      <label class="f">Their name<input type="text" id="ivn" placeholder="e.g. Financial Secretary"></label>
-      <label class="f">Their email<input type="email" id="ive" placeholder="name@gmail.com"></label>
-      <label class="f">Role<select id="ivr"><option value="finsec">${esc(ROLE_LABEL('finsec'))} — records & approves, all units</option><option value="treasurer">${esc(ROLE_LABEL('treasurer'))} — records for one unit</option><option value="viewer">Viewer — can only look</option><option value="admin">Admin — everything</option></select></label>
-      <label class="f">Which unit <span class="muted">(for treasurers and viewers)</span><select id="ivu"><option value="">All units</option>${S.units.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></label>
-      <div class="note">They create an account at the app link with this same email. They'll see only what this role allows.</div>
-      <button class="btn" data-act="saveinvite"${busy}>Send invite</button></div>`;
+  case 'photo': { const P=S.photo; if(!P) return ''; const sv=svcById(P.service);
+    if(P.loading) return `<div class="sheet" role="dialog" aria-label="Reading photo">${head('Reading your sheet…')}${P.url?`<img src="${P.url}" alt="Your photo" style="max-height:220px;object-fit:contain;border-radius:12px">`:''}<div class="loading" style="min-height:80px">This takes a few seconds…</div></div>`;
+    if(P.error) return `<div class="sheet" role="dialog" aria-label="Photo">${head('Could not read the photo')}<div class="note">${esc(P.error)}</div><span class="muted">Try a brighter photo taken straight from above, or type the numbers in by hand.</span></div>`;
+    const R=P.result||{}, items=(R.items||[]).filter(x=>x&&x.amount>0), exps=(R.expenses||[]).filter(x=>x&&x.amount>0);
+    const dbKeys=['sunday','monday','tuesday','wednesday','thursday','friday','saturday','unknown'], db=R.dayborn||{};
+    const dbAllowed=sv&&dayBornAllowedFor(sv.unit_id)&&!dbForService(sv.id), dbHas=dbKeys.some(k=>num(db[k])>0);
+    const known=svcItems().filter(x=>x!=='Day Born'), match=n=>{ const l=String(n||'').toLowerCase(); return known.find(k=>k.toLowerCase()===l)||known.find(k=>l.includes(k.toLowerCase())||k.toLowerCase().includes(l))||String(n||'').trim(); };
+    const dateWarn=R.date&&sv&&R.date!==sv.service_date?`<div class="note">The sheet says <b>${dLong(R.date)}</b> but this service is on <b>${dLong(sv.service_date)}</b>. Everything will be saved to this service.</div>`:'';
+    return `<div class="sheet" role="dialog" aria-label="Check the numbers">${head('Check the numbers')}
+      <div class="note">Compare with your sheet and fix anything that's wrong. Nothing is saved until you tap Save.${(R.unsure||[]).length?` <b>Hard to read:</b> ${esc(R.unsure.join(', '))}.`:''}</div>
+      ${P.url?`<details><summary class="link" style="cursor:pointer">Show my photo</summary><img src="${P.url}" alt="Your photo" style="margin-top:8px;max-height:380px;width:100%;object-fit:contain;border-radius:12px"></details>`:''}
+      ${dateWarn}
+      <h3>Income</h3>
+      ${items.map((x,i)=>`<div class="row2" style="grid-template-columns:1.4fr 1fr auto;align-items:center"><input type="text" id="phc${i}" value="${esc(match(x.name))}" list="itlist"><input type="number" inputmode="decimal" id="pha${i}" value="${num(x.amount)}" style="text-align:right"><input type="checkbox" id="phk${i}" checked style="width:20px;height:20px;accent-color:var(--brand-2)" aria-label="Include"></div>`).join('')||'<span class="muted">No income lines found.</span>'}
+      <datalist id="itlist">${[...new Set([...known,...C().income])].map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
+      ${dbAllowed&&dbHas?`<h3>Day Born</h3><div>${DAYS.map((d,i)=>`<div class="day"><div><b>${d.d==='Unknown'?'No day name':d.d}</b><small>${d.f?`${d.m} · ${d.f}`:'Day not known'}</small></div><input type="number" inputmode="decimal" id="phd${i}" value="${db[dbKeys[i]]??''}" placeholder="0" style="text-align:right"></div>`).join('')}</div>`:''}
+      ${dbHas&&!dbAllowed?`<div class="note">${sv&&dbForService(sv.id)?'Day Born is already saved for this service, so the Day Born numbers in the photo will be skipped.':'Day Born was found, but this unit does not record Day Born.'}</div>`:''}
+      ${exps.length?`<h3>Expenses <span class="muted" style="font-weight:400">(saved as waiting for approval)</span></h3>${exps.map((x,i)=>`<div class="stack" style="margin-top:0;gap:6px;padding:8px 0;border-top:1px solid var(--line)"><div class="row2"><input type="text" id="pxt${i}" value="${esc(x.paid_to||'')}" placeholder="Paid to"><input type="text" id="pxp${i}" value="${esc(x.purpose||'')}" placeholder="What for"></div><div class="row2" style="grid-template-columns:1fr auto;align-items:center"><input type="number" inputmode="decimal" id="pxa${i}" value="${num(x.amount)}" style="text-align:right"><input type="checkbox" id="pxk${i}" checked style="width:20px;height:20px;accent-color:var(--brand-2)" aria-label="Include"></div></div>`).join('')}`:''}
+      ${(R.counters||[]).length?`<span class="muted">Counted by: ${esc(R.counters.join(', '))}</span>`:''}
+      <div class="sumbar"><div><span>Untick anything you don't want saved</span></div><button class="btn light" data-act="savephoto"${busy}>Save to this service</button></div></div>`; }
+  case 'invite': case 'access': { const u=sh.t==='access'?S.orgUsers.find(x=>x.id===sh.id):null;
+    return `<div class="sheet" role="dialog" aria-label="Access">${head(u?`Access for ${esc(u.display_name||u.email)}`:'Give someone an account')}
+      ${u?`<span class="muted">${esc(u.email||'')}</span>`:`<label class="f">Their name<input type="text" id="ivn" placeholder="e.g. Choir Treasurer"></label>
+      <label class="f">Their email <span class="muted">(they sign up with this)</span><input type="email" id="ive" placeholder="name@gmail.com"></label>`}
+      ${accessFields(u)}
+      <button class="btn" data-act="${u?'saveaccess':'saveinvite'}" data-id="${u?.id||''}"${busy}>${u?'Save access':'Create invite'}</button>
+      ${u?`<button class="btn danger" data-act="removeuser" data-id="${u.id}">Remove this person</button>`:''}</div>`; }
+  case 'invited': { const v=S.invites.find(x=>x.id===sh.id); if(!v) return ''; const msg=inviteMessage(v);
+    return `<div class="sheet" role="dialog" aria-label="Invite link">${head('Send them the link')}
+      <div class="note">${esc(v.display_name||v.email)} can now sign up. Send this message so they know what to do.</div>
+      <div class="linkbox" style="white-space:pre-line">${esc(msg)}</div>
+      <div class="btnrow"><a class="btn small" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Send by WhatsApp</a><button class="btn small ghost" data-act="copy" data-id="${esc(msg)}">Copy message</button></div></div>`; }
   }
   return '';
 }
@@ -915,6 +956,18 @@ document.addEventListener('click', async e=>{
       const c1=val('sc1').trim(), c2=val('sc2').trim(), cChanged=c1!==(s.counter1||'')||c2!==(s.counter2||'');
       if(!rows.length&&!cChanged){ toast('Enter at least one amount.'); return; }
       return act(async()=>{ if(rows.length) await must(sb.from('transactions').insert(rows)); if(cChanged) await must(sb.from('services').update({counter1:c1||null,counter2:c2||null}).eq('id',s.id)); S.svcDraft={}; }, rows.length?`Saved ${rows.length} item${rows.length>1?'s':''} · ${fmt(rows.reduce((a,r)=>a+r.amount,0))}.`:'Saved.'); }
+    case 'savephoto': { const P=S.photo, sv=svcById(P?.service); if(!P||!sv) return; const R=P.result||{};
+      const items=(R.items||[]).filter(x=>x&&x.amount>0), exps=(R.expenses||[]).filter(x=>x&&x.amount>0), rows=[], exRows=[];
+      items.forEach((_,i)=>{ if(!chk('phk'+i)) return; const c=val('phc'+i).trim(), v=Math.round((parseFloat(val('pha'+i))||0)*100)/100; if(c&&v>0) rows.push({unit_id:sv.unit_id,txn_date:sv.service_date,category:c,amount:v,service_id:sv.id,program_id:sv.program_id,method:'Cash',note:(sv.title||sv.kind)+' (from photo)'}); });
+      exps.forEach((x,i)=>{ if(!chk('pxk'+i)) return; const v=Math.round((parseFloat(val('pxa'+i))||0)*100)/100, pp=val('pxp'+i).trim()||'Expense', to=val('pxt'+i).trim()||pp; if(v>0) exRows.push({unit_id:sv.unit_id,paid_to:to,purpose:pp,amount:v,exp_date:sv.service_date,fund:'General fund',service_id:sv.id,program_id:sv.program_id,note:'From photo'}); });
+      const dbAm=DAYS.map((_,i)=>{ const el=$('phd'+i); return el?Math.round((parseFloat(el.value)||0)*100)/100:0; }), dbTot=dbAm.reduce((a,b)=>a+b,0);
+      if(!rows.length&&!exRows.length&&!dbTot){ toast('Nothing ticked to save.'); return; }
+      return act(async()=>{
+        if(rows.length) await must(sb.from('transactions').insert(rows));
+        if(dbTot>0) await must(sb.rpc('save_dayborn',{p_unit:sv.unit_id,p_sunday:sv.service_date,p_amounts:dbAm,p_c1:(R.counters||[])[0]||'',p_c2:(R.counters||[])[1]||'',p_service:sv.id}));
+        if(exRows.length) await must(sb.from('expenses').insert(exRows));
+        if(P.url) URL.revokeObjectURL(P.url); S.photo=null;
+      }, `Saved from photo: ${rows.length} income item${rows.length===1?'':'s'}${dbTot?', Day Born':''}${exRows.length?`, ${exRows.length} expense${exRows.length>1?'s':''}`:''}.`); }
     case 'sharesvc': { const s=svcById(id), tx=svcTx(id), ex=svcEx(id).filter(counted), by={}; tx.forEach(t=>by[t.category]=(by[t.category]||0)+num(t.amount));
       const text=`${S.org.name} — ${s.title||s.kind}, ${dLong(s.service_date)}\n`+Object.entries(by).map(([k,v])=>`${k}: ${fmt(v)}`).join('\n')+`\nTotal income: ${fmt(sumAmt(tx))}\nExpenses: ${fmt(sumAmt(ex))}\nBalance: ${fmt(sumAmt(tx)-sumAmt(ex))}`;
       window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank','noopener'); return; }
@@ -926,7 +979,7 @@ document.addEventListener('click', async e=>{
       const kinds=val('svkinds').split('\n').map(s=>s.trim()).filter(Boolean);
       const pf={}; ['theme','speakers','team','venue'].forEach(k=>pf[k]=chk('pf_'+k));
       return act(()=>must(sb.from('orgs').update({features:{...(S.org.features||{}),service_items:all,service_kinds:kinds.length?kinds:svcKinds(),program_fields:pf}}).eq('id',S.org.id)),'Saved.'); }
-    case 'close': case 'bg': S.sheet=null; break;
+    case 'close': case 'bg': S.sheet=null; if(S.photo&&!S.photo.loading){ if(S.photo.url) URL.revokeObjectURL(S.photo.url); S.photo=null; } break;
     case 'copy': try{ await navigator.clipboard.writeText(id); toast('Link copied.'); }catch(err){ toast('Select the link and copy it.'); } return;
     case 'print': window.print(); return;
     /* money */
@@ -979,9 +1032,10 @@ document.addEventListener('click', async e=>{
     case 'saveunit': { const n=val('un').trim(), b=parseFloat(val('ub'))||0; if(!n){ toast('Name cannot be empty.'); return; }
       return act(()=>must(sb.from('units').update({name:n,opening_balance:b}).eq('id',id)),'Saved.'); }
     case 'savesettings': return act(()=>must(sb.from('orgs').update({name:val('setname').trim()||S.org.name,currency:val('setcur'),kind:val('setkind')}).eq('id',S.org.id)),'Settings saved.');
-    case 'saveinvite': { const em=val('ive').trim().toLowerCase(), r=val('ivr'), u=val('ivu')||null; if(!/^\S+@\S+\.\S+$/.test(em)){ toast('Enter a valid email.'); return; }
-      if(r==='treasurer'&&!u){ toast('Choose which unit this treasurer looks after.'); return; }
-      return act(()=>must(sb.from('invites').insert({org_id:S.org.id,email:em,display_name:val('ivn')||null,role:r,unit_id:(r==='admin'||r==='finsec')?null:u})),`Invite saved. Send ${em} the app link.`); }
+    case 'saveinvite': case 'saveaccess': { const acc=readAccess(); if(!acc) return;
+      if(a==='saveaccess') return act(()=>must(sb.from('org_users').update(acc).eq('id',id)),'Access updated. They see the change next time they open the app.');
+      const em=val('ive').trim().toLowerCase(); if(!/^\S+@\S+\.\S+$/.test(em)){ toast('Enter a valid email.'); return; }
+      let row; return act(async()=>{ row=await must(sb.from('invites').insert({org_id:S.org.id,email:em,display_name:val('ivn').trim()||null,...acc}).select().single()); },'Invite created.').then(()=>{ if(row){ S.sheet={t:'invited',id:row.id}; render(); } }); }
     case 'cancelinvite': return act(()=>must(sb.from('invites').delete().eq('id',id)),'Invite cancelled.');
     case 'removeuser': return act(()=>must(sb.from('org_users').delete().eq('id',id)),'Removed.');
     case 'csv': exportCSV(); return;
@@ -1008,6 +1062,7 @@ document.addEventListener('input', e=>{
 document.addEventListener('change', async e=>{
   if(e.target.id==='unitsel'){ S.view=e.target.value; S.member=S.payee=S.camp=null; S.group=null; render(); }
   if(e.target.id==='svccamp'){ S.svcDraft.__camp=e.target.value; }
+  if(e.target.id==='photoin'&&e.target.files&&e.target.files[0]){ readPhoto(e.target.files[0], e.target.dataset.service); e.target.value=''; }
   if(e.target.id==='rmonth'){ S.reportMonth=e.target.value||S.reportMonth; render(); }
   if(e.target.id==='orgsel'){ try{ localStorage.setItem('sikabook.org',e.target.value); }catch(err){} await loadOrgs(); S.view='all'; await refresh(); }
   if(e.target.dataset.feat){ const f={...(S.org.features||{}),[e.target.dataset.feat]:e.target.checked}; act(()=>must(sb.from('orgs').update({features:f}).eq('id',S.org.id)),'Saved.'); }
@@ -1016,6 +1071,28 @@ const tip=$('tip');
 document.addEventListener('pointerover', e=>{ const t=e.target.closest&&e.target.closest('[data-tip]'); if(!t){ tip.hidden=true; return; } const r=t.getBoundingClientRect(); tip.textContent=t.dataset.tip; tip.style.left=Math.min(window.innerWidth-90,Math.max(90,r.left+r.width/2))+'px'; tip.style.top=(r.top+r.height*0.2)+'px'; tip.hidden=false; });
 document.addEventListener('scroll', ()=>{ tip.hidden=true; }, {passive:true});
 let lastDesk=isDesk(); window.addEventListener('resize', ()=>{ if(isDesk()!==lastDesk){ lastDesk=isDesk(); render(); } });
+
+/* ===================== Photo reading ===================== */
+async function shrinkImage(file, max=1800){
+  const url=URL.createObjectURL(file);
+  const img=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
+  const k=Math.min(1, max/Math.max(img.naturalWidth,img.naturalHeight)), c=document.createElement('canvas');
+  c.width=Math.round(img.naturalWidth*k); c.height=Math.round(img.naturalHeight*k);
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+  const data=c.toDataURL('image/jpeg',0.85).split(',')[1];
+  return {url,data};
+}
+async function readPhoto(file, serviceId){
+  S.photo={service:serviceId,loading:true}; S.sheet={t:'photo'}; render();
+  try{
+    const {url,data}=await shrinkImage(file); S.photo.url=url; render();
+    const {data:res,error}=await sb.functions.invoke('read-sheet',{body:{image:data,mime:'image/jpeg',items:svcItems().filter(x=>x!=='Day Born')}});
+    if(error){ let msg='The photo reader is not available right now.'; try{ const b=await error.context.json(); if(b&&b.error) msg=b.error; }catch(_){} throw new Error(msg); }
+    if(!res||!res.result) throw new Error((res&&res.error)||'Could not read that photo.');
+    S.photo={...S.photo,loading:false,result:res.result};
+  }catch(err){ S.photo={...S.photo,loading:false,error:err.message||String(err)}; }
+  if(S.sheet&&S.sheet.t==='photo') render();
+}
 
 /* ===================== Recipient confirmation page (no sign-in) ===================== */
 async function confirmPage(token){

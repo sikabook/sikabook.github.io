@@ -56,26 +56,41 @@ create table if not exists public.invites (
   created_at timestamptz not null default now()
 );
 
+-- v3: a person tied to one unit can be limited to that unit only (no societies under it)
+alter table public.org_users add column if not exists include_children boolean not null default false;
+alter table public.invites add column if not exists include_children boolean not null default false;
+
 -- ---------- Access helpers (run as definer so policies can use them) ----------
 create or replace function public.my_org_role(o uuid) returns text
 language sql stable security definer set search_path = public as $$
   select role from org_users where org_id = o and user_id = auth.uid()
 $$;
 
+-- Units this user may see: everything (unit_id null), or their unit
+-- plus — only if include_children — the units under it.
 create or replace function public.my_unit_ids(o uuid) returns setof uuid
 language sql stable security definer set search_path = public as $$
   with recursive ou as (
-    select unit_id from org_users where org_id = o and user_id = auth.uid()
+    select unit_id, include_children from org_users where org_id = o and user_id = auth.uid()
   ),
   tree as (
-    select u.id from units u
+    select u.id,
+           (exists (select 1 from ou where ou.unit_id is null)
+            or exists (select 1 from ou where ou.unit_id = u.id and ou.include_children)) as deep
+      from units u
      where u.org_id = o
        and (exists (select 1 from ou where ou.unit_id is null)
             or u.id in (select ou.unit_id from ou where ou.unit_id is not null))
     union
-    select c.id from units c join tree t on c.parent_id = t.id
+    select c.id, true from units c join tree t on c.parent_id = t.id where t.deep
   )
-  select id from tree
+  select distinct id from tree
+$$;
+
+-- true when the user sees the whole church/organization (Super admin or org-wide officer)
+create or replace function public.is_org_wide(o uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from org_users where org_id = o and user_id = auth.uid() and unit_id is null)
 $$;
 
 create or replace function public.can_see_unit(u uuid) returns boolean
@@ -103,7 +118,7 @@ $$;
 
 create or replace function public.is_org_admin(o uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce(my_org_role(o) = 'admin', false)
+  select coalesce(my_org_role(o) = 'admin', false) and is_org_wide(o)
 $$;
 
 -- ---------- Members ----------
@@ -441,7 +456,7 @@ create policy units_sel on public.units for select to authenticated using (can_s
 create policy units_ins on public.units for insert to authenticated with check (is_org_admin(org_id));
 create policy units_upd on public.units for update to authenticated using (is_org_admin(org_id)) with check (is_org_admin(org_id));
 
-create policy ou_sel on public.org_users for select to authenticated using (is_org_member(org_id));
+create policy ou_sel on public.org_users for select to authenticated using (user_id = auth.uid() or is_org_wide(org_id));
 create policy ou_upd on public.org_users for update to authenticated using (is_org_admin(org_id)) with check (is_org_admin(org_id));
 create policy ou_del on public.org_users for delete to authenticated using (is_org_admin(org_id) and user_id <> auth.uid());
 
@@ -499,7 +514,7 @@ create policy ex_ins on public.expenses for insert to authenticated
   with check (can_write_unit(unit_id) and status = 'pending' and voided = false);
 create policy ex_upd on public.expenses for update to authenticated using (can_write_unit(unit_id));
 
-create policy log_sel on public.audit_log for select to authenticated using (is_approver(org_id));
+create policy log_sel on public.audit_log for select to authenticated using (is_approver(org_id) and is_org_wide(org_id));
 
 create policy prg_sel on public.programs for select to authenticated using (can_see_unit(unit_id));
 create policy prg_ins on public.programs for insert to authenticated with check (can_write_unit(unit_id));
@@ -534,9 +549,10 @@ declare r record; n int := 0; e text := lower(auth.jwt()->>'email');
 begin
   if auth.uid() is null or e is null then return 0; end if;
   for r in select * from invites where lower(email) = e and accepted_at is null loop
-    insert into org_users(org_id, user_id, email, display_name, role, unit_id)
-    values (r.org_id, auth.uid(), e, r.display_name, r.role, r.unit_id)
-    on conflict (org_id, user_id) do update set role = excluded.role, unit_id = excluded.unit_id, display_name = excluded.display_name;
+    insert into org_users(org_id, user_id, email, display_name, role, unit_id, include_children)
+    values (r.org_id, auth.uid(), e, r.display_name, r.role, r.unit_id, r.include_children)
+    on conflict (org_id, user_id) do update set role = excluded.role, unit_id = excluded.unit_id,
+      display_name = excluded.display_name, include_children = excluded.include_children;
     update invites set accepted_at = now() where id = r.id;
     n := n + 1;
   end loop;

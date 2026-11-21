@@ -33,7 +33,7 @@ const FUNDS = ['General fund','Day Born fund','Welfare fund','Building fund','Ha
 const S = {
   session:null, user:null, orgs:[], org:null, me:null, loading:true, authMode:'signin', authMsg:'', recovery:false,
   units:[], orgUsers:[], invites:[], members:[], mu:[], txs:[], counts:[], budgets:[], targets:[], payees:[], lines:[], expenses:[], camps:[], pledges:[], logs:[],
-  services:[], programs:[], service:null, program:null, svcTab:'services', svcDraft:{}, photo:null,
+  services:[], programs:[], service:null, program:null, svcTab:'services', svcDraft:{}, photo:null, hYear:null, hMonth:null,
   view:'all', tab:'home', member:null, payee:null, group:null, camp:null, q:'', showAll:false, showOwing:false, spendKind:'all', editB:null,
   sunday:DAYS.map(()=>''), sheet:null, forcePhone:false, showHigher:false, reportMonth: todayISO().slice(0,7), busy:false,
 };
@@ -269,6 +269,7 @@ function home(){
       <div class="bar"><span>${fmt(bS)} spent of ${fmt(bT)}</span><b class="num">${bT?Math.round(bS/bT*100):0}%</b><div class="track"><div class="fill" style="width:${bT?Math.min(100,bS/bT*100):0}%"></div><div class="pace" style="left:${(MONTH+1)/12*100}%"></div></div></div>
       <span class="muted">The dark mark shows where spending should be by the end of ${MONTHS[MONTH]}.</span></div>`:''}
     ${owing.length?`<button class="alert" data-act="tab" data-id="members" style="background:var(--surface-2)"><span>📋</span><span><b style="color:var(--ink)">${owing.length} member${owing.length>1?'s':''}</b> ha${owing.length>1?'ve':'s'} not paid ${inScope(mainUnit()?.id)?esc(C().tithe.toLowerCase()):'dues'} for ${MONTHS[MONTH]}.</span></button>`:''}
+    <button class="alert" data-act="tab" data-id="history" style="background:var(--surface-2)"><span>🗂</span><span><b style="color:var(--ink)">History</b>: all months and years, with totals. Add anything you missed on an earlier date.</span></button>
     <div class="card"><h3>Latest entries</h3><div class="list">
       ${recent.map(x=>x.kind==='out'
         ?`<button class="item" data-act="sheet" data-t="expense" data-id="${x.id}"><span class="t"><b>${esc(x.desc)}</b><small>${esc(uName(x.u))} · ${dShort(x.d)} · expense${x.voided?' · voided':''}</small></span><span class="amt num out">−${short(x.amt)}</span><span class="chev">›</span></button>`
@@ -470,6 +471,8 @@ function readAccess(){ const r=val('ivr'), u=val('ivu')||null, k=chk('ivk');
   if(r==='admin'&&u){ toast('A Super admin must see everything. Choose “Everything”, or pick another role.'); return null; }
   return {role:r, unit_id:u, include_children:u?k:false}; }
 function inviteMessage(v){ return `Hello ${v.display_name||''},\nYou now have a SikaBook account for ${S.org.name} (${accessLabel(v)}).\n1. Open ${appLink()}\n2. Tap “Create an account” and use this email: ${v.email}\n3. Confirm your email, then sign in.\nOn your phone, choose “Add to Home Screen” so it opens like an app.`; }
+function pastCats(){ return [...new Set([...C().income,...svcItems().filter(x=>x!=='Day Born'),...liveTx().map(t=>t.category)])]; }
+function recentExpenses(){ const seen=new Set(), out=[]; for(const e of S.expenses){ if(!inScope(e.unit_id)||e.voided) continue; const k=(e.paid_to+'|'+e.purpose).toLowerCase(); if(seen.has(k)) continue; seen.add(k); out.push(e); if(out.length>=8) break; } return out; }
 function scanButtons(serviceId){ const sid=serviceId||'';
   return `<div class="btnrow"><label class="btn light" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer">📷 Take photo<input type="file" class="photoin" data-service="${sid}" accept="image/*" capture="environment" hidden></label><label class="btn ghost" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer">🖼 From gallery<input type="file" class="photoin" data-service="${sid}" accept="image/*" hidden></label></div>`; }
 function ctxLine(sv,pr){ if(sv) return `<div class="note">For <b>${esc(svcName(sv))}</b>${sv.program_id?' · '+esc(progById(sv.program_id)?.name||''):''}</div>`; if(pr) return `<div class="note">For program <b>${esc(pr.name)}</b></div>`; return ''; }
@@ -617,6 +620,72 @@ function programDetail(p){
   </div>`;
 }
 
+/* ---- History: services roll up into months and years ---- */
+function historyYears(){ return [...new Set([...liveTx().filter(t=>inScope(t.unit_id)).map(t=>+t.txn_date.slice(0,4)),...S.expenses.filter(e=>inScope(e.unit_id)).map(e=>+e.exp_date.slice(0,4)),YEAR])].sort((a,b)=>b-a); }
+function periodData(prefix){
+  const tx=liveTx().filter(t=>inScope(t.unit_id)&&t.txn_date.startsWith(prefix)), ex=S.expenses.filter(e=>inScope(e.unit_id)&&counted(e)&&e.exp_date.startsWith(prefix));
+  const cats={}; tx.forEach(t=>cats[t.category]=(cats[t.category]||0)+num(t.amount));
+  const bName=id=>S.budgets.find(b=>b.id===id)?.name; const outs={}; ex.forEach(e=>{const k=bName(e.budget_id)||e.purpose; outs[k]=(outs[k]||0)+num(e.amount);});
+  return {tx,ex,inc:sumAmt(tx),out:sumAmt(ex),cats,outs,svcs:S.services.filter(x=>inScope(x.unit_id)&&x.service_date.startsWith(prefix))};
+}
+const lastDayOf=(y,m)=>new Date(y,m,0).toLocaleDateString('en-CA');
+const missedBtns=(date)=>canWrite()?`<div class="card"><h3>Missed something?</h3><span class="muted">Add an income or expense to an earlier date. The day, month and year totals update straight away.</span>
+  <div class="btnrow"><button class="btn small" data-act="sheet" data-t="income" data-date="${date}">＋ Add income on an earlier date</button><button class="btn small ghost" data-act="sheet" data-t="expnew" data-date="${date}">− Add expense on an earlier date</button><button class="btn small ghost" data-act="sheet" data-t="newservice" data-date="${date}">▦ Add a past service</button></div></div>`:'';
+function catTable(obj,total,title){ const rows=Object.entries(obj).sort((a,b)=>b[1]-a[1]); return `<div class="card"><h3>${title}</h3>${rows.length?`<div class="tbl"><table><thead><tr><th>Type</th><th>Amount</th><th>Share</th></tr></thead><tbody>${rows.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.toLocaleString('en-US',{maximumFractionDigits:2})}</td><td>${total?Math.round(v/total*100):0}%</td></tr>`).join('')}<tr class="total"><td>Total</td><td>${total.toLocaleString('en-US',{maximumFractionDigits:2})}</td><td>100%</td></tr></tbody></table></div>`:'<span class="muted">Nothing recorded.</span>'}</div>`; }
+function historyView(){
+  const years=historyYears(), y=S.hYear||years[0]||YEAR;
+  if(S.hMonth) return historyMonth(y,+S.hMonth);
+  const d=periodData(y+'-'), sc=scope();
+  const months=MONTHS.map((mn,i)=>{ const k=`${y}-${String(i+1).padStart(2,'0')}`, p=periodData(k); return {i:i+1,mn,inc:p.inc,out:p.out,svc:p.svcs.length,any:p.tx.length||p.ex.length||p.svcs.length}; });
+  const close=balanceBefore(sc, y>=YEAR?'9999-12-31':`${y+1}-01-01`);
+  return `<div class="pagehead row"><div><h2>History</h2><span class="muted">${esc(scopeLabel())} · every service adds up into its month and year</span></div>
+    <div class="btnrow">${years.map(v=>`<button class="btn small ${v===y?'':'ghost'}" data-act="hyear" data-id="${v}">${v}</button>`).join('')}<button class="btn small ghost" data-act="csvp" data-id="${y}">Excel (CSV) ${y}</button></div></div>
+  <div class="stack">
+    <div class="tiles">
+      <div class="tile"><span>Income ${y}</span><b style="color:var(--good)">${fmt(d.inc)}</b><span>${d.tx.length} records</span></div>
+      <div class="tile"><span>Expenses ${y}</span><b style="color:var(--bad)">${fmt(d.out)}</b><span>${d.ex.length} approved</span></div>
+      <div class="tile"><span>${d.inc-d.out>=0?'Surplus':'Deficit'} ${y}</span><b>${fmt(d.inc-d.out)}</b><span>${d.svcs.length} services</span></div>
+      <div class="tile"><span>Balance ${y>=YEAR?'now':'at end of '+y}</span><b>${fmt(close)}</b></div>
+    </div>
+    <div class="grid2"><div class="col">
+      <div class="card"><div class="cardhead"><h3>Month by month · ${y}</h3><span class="muted">Tap a month</span></div>
+        <div class="tbl"><table><thead><tr><th>Month</th><th>Services</th><th>Income</th><th>Expenses</th><th>Surplus</th></tr></thead><tbody>
+        ${months.map(m=>`<tr><td><button data-act="hmonth" data-id="${m.i}" ${m.any?'':'style="color:var(--muted)"'}>${m.mn}</button></td><td>${m.svc||''}</td><td>${m.inc.toLocaleString('en-US')}</td><td>${m.out.toLocaleString('en-US')}</td><td class="${m.inc-m.out>=0?'pos':'neg'}">${(m.inc-m.out).toLocaleString('en-US')}</td></tr>`).join('')}
+        <tr class="total"><td>${y}</td><td>${d.svcs.length}</td><td>${d.inc.toLocaleString('en-US')}</td><td>${d.out.toLocaleString('en-US')}</td><td>${(d.inc-d.out).toLocaleString('en-US')}</td></tr></tbody></table></div></div>
+      <div class="card"><h3>Income each month · ${y}</h3>${barChart(MONTHS,months.map(m=>m.inc),'Income each month')}</div>
+    </div><div class="col">
+      ${catTable(d.cats,d.inc,`Where the money came from · ${y}`)}
+      ${catTable(d.outs,d.out,`Where the money went · ${y}`)}
+      ${missedBtns(y===YEAR?todayISO():`${y}-12-31`)}
+    </div></div>
+  </div>`;
+}
+function historyMonth(y,m){
+  const k=`${y}-${String(m).padStart(2,'0')}`, d=periodData(k), sc=scope(), label=`${MONTHS[m-1]} ${y}`;
+  const days=[...new Set([...d.tx.map(t=>t.txn_date),...d.ex.map(e=>e.exp_date),...d.svcs.map(x=>x.service_date)])].sort();
+  const entries=[...d.tx.map(t=>({k:'in',d:t.txn_date,id:t.id,t:t.category+(t.member_id?' — '+memberName(t.member_id):''),a:num(t.amount),s:t.service_id})),...S.expenses.filter(e=>inScope(e.unit_id)&&!e.voided&&e.exp_date.startsWith(k)).map(e=>({k:'out',d:e.exp_date,id:e.id,t:`${e.paid_to} — ${e.purpose}`,a:num(e.amount),st:e.status,s:e.service_id}))].sort((a,b)=>b.d.localeCompare(a.d));
+  const target=(y===YEAR&&m===MONTH+1)?todayISO():lastDayOf(y,m);
+  return `<button class="back" data-act="hmonth" data-id="">‹ ${y}</button>
+  <div class="pagehead row" style="margin-top:8px"><div><h2 style="display:block">${label}</h2><span class="muted">${esc(scopeLabel())}</span></div><div class="btnrow"><button class="btn small ghost" data-act="csvp" data-id="${k}">Excel (CSV)</button><button class="btn small ghost" data-act="print">Print / PDF</button></div></div>
+  <div class="stack">
+    <div class="tiles">
+      <div class="tile"><span>Opening balance</span><b>${fmt(balanceBefore(sc,k+'-01'))}</b></div>
+      <div class="tile"><span>Income</span><b style="color:var(--good)">${fmt(d.inc)}</b></div>
+      <div class="tile"><span>Expenses</span><b style="color:var(--bad)">${fmt(d.out)}</b></div>
+      <div class="tile"><span>Closing balance</span><b>${fmt(balanceBefore(sc,new Date(y,m,1).toLocaleDateString('en-CA')))}</b></div>
+    </div>
+    <div class="grid2"><div class="col">
+      <div class="card"><div class="cardhead"><h3>Services in ${label}</h3><span class="muted">Tap to open</span></div><div class="list">${d.svcs.sort((a,b)=>a.service_date.localeCompare(b.service_date)).map(x=>{const i=sumAmt(svcTx(x.id)), o=sumAmt(svcEx(x.id).filter(counted)); return `<button class="item" data-act="opensvc" data-id="${x.id}"><span class="av">${+x.service_date.slice(8,10)}</span><span class="t"><b>${esc(x.title||x.kind)}</b><small>${dLong(x.service_date)} · ${esc(uName(x.unit_id))}</small></span><span class="right"><span class="amt num">${fmt(i-o)}</span><span class="muted num">in ${short(i)} · out ${short(o)}</span></span><span class="chev">›</span></button>`;}).join('')||'<span class="muted">No services this month.</span>'}</div></div>
+      <div class="card"><h3>Day by day</h3>${days.length?`<div class="tbl"><table><thead><tr><th>Day</th><th>Income</th><th>Expenses</th><th>Balance</th></tr></thead><tbody>${days.map(dd=>{const i=sumAmt(d.tx.filter(t=>t.txn_date===dd)), o=sumAmt(d.ex.filter(e=>e.exp_date===dd)); return `<tr><td>${dShort(dd)}</td><td>${i.toLocaleString('en-US')}</td><td>${o.toLocaleString('en-US')}</td><td class="${i-o>=0?'pos':'neg'}">${(i-o).toLocaleString('en-US')}</td></tr>`;}).join('')}<tr class="total"><td>Total</td><td>${d.inc.toLocaleString('en-US')}</td><td>${d.out.toLocaleString('en-US')}</td><td>${(d.inc-d.out).toLocaleString('en-US')}</td></tr></tbody></table></div>`:'<span class="muted">Nothing recorded this month.</span>'}</div>
+      ${missedBtns(target)}
+    </div><div class="col">
+      ${catTable(d.cats,d.inc,'Where the money came from')}
+      ${catTable(d.outs,d.out,'Where the money went')}
+      <div class="card"><h3>Every record · ${label}</h3><div class="list">${entries.slice(0,150).map(r=>`<button class="item" data-act="sheet" data-t="${r.k==='in'?'txn':'expense'}" data-id="${r.id}"><span class="t"><b>${esc(r.t)}</b><small>${dLong(r.d)}${r.s&&svcById(r.s)?' · '+esc(svcById(r.s).title||svcById(r.s).kind):''}${r.st&&r.st!=='confirmed'&&r.st!=='approved'?' · '+r.st:''}</small></span><span class="amt num ${r.k}">${r.k==='in'?'+':'−'}${short(r.a)}</span></button>`).join('')||'<span class="muted">Nothing recorded.</span>'}</div></div>
+    </div></div>
+  </div>`;
+}
+
 /* ---- Reports ---- */
 function reportsView(){
   const sc=scope(), mk=S.reportMonth, start=mk+'-01', [yy,mm]=mk.split('-').map(Number), next=new Date(yy,mm,1).toLocaleDateString('en-CA');
@@ -716,6 +785,7 @@ function sheetHTML(){
         <dt>Recorded by</dt><dd>${esc(nm(by(x.created_by)))}</dd><dt>Approved by</dt><dd>${x.approved_by?esc(nm(by(x.approved_by))):'Not yet'}</dd>
         <dt>Recipient</dt><dd>${x.confirmed_at?'Confirmed '+new Date(x.confirmed_at).toLocaleDateString('en-GB'):'Not confirmed yet'}</dd>
         <dt>Receipt no.</dt><dd class="num">EXP-${x.receipt_no}</dd>${x.note?`<dt>Note</dt><dd>${esc(x.note)}</dd>`:''}${x.voided?`<dt>Void reason</dt><dd>${esc(x.void_reason||'')}</dd>`:''}</dl>
+      ${canWrite()?`<button class="btn small ghost" style="align-self:flex-start" data-act="sheet" data-t="expnew" data-copy="${x.id}">↻ Record this again (new date)</button>`:''}
       ${!x.voided&&x.status==='pending'&&isApprover()?`<div class="row2"><button class="btn ghost" data-act="reject" data-id="${x.id}"${busy}>Reject</button><button class="btn" data-act="approve" data-id="${x.id}"${busy}>Approve</button></div>`:''}
       ${!x.voided&&x.status==='pending'&&!isApprover()?`<div class="note">The ${esc(ROLE_LABEL('finsec'))} or admin approves this.</div>`:''}
       ${!x.voided&&x.status==='approved'?`<div class="note">Send this link to ${esc(x.paid_to)}. When they open it and tap “Yes, I received it”, the payment is marked as confirmed.</div><div class="linkbox">${esc(link)}</div>
@@ -735,22 +805,24 @@ function sheetHTML(){
     return `<div class="sheet" role="dialog" aria-label="Record income">${head('Record income')}
       ${ctxLine(sv,pr)}
       ${sv?`<input type="hidden" id="iu" value="${sv.unit_id}">`:unitPicker('iu', defU)}
-      <label class="f">Type<input type="text" id="it" list="itlist" value="${esc(sv?C().tithe:C().income[0])}"><datalist id="itlist">${C().income.map(t=>`<option value="${esc(t)}">`).join('')}</datalist></label>
+      <label class="f">Type<input type="text" id="it" list="itlist" value="${esc(sv?C().tithe:C().income[0])}"><datalist id="itlist">${pastCats().map(t=>`<option value="${esc(t)}">`).join('')}</datalist></label>
       <label class="f">Member (optional)<select id="im"><option value="">— No member —</option>${membersInScope().map(x=>`<option value="${x.id}" ${m&&m.id===x.id?'selected':''}>${esc(x.full_name)}</option>`).join('')}</select></label>
-      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="ia" inputmode="decimal" placeholder="0.00"></label><label class="f">Date<input type="date" id="id" value="${sv?sv.service_date:todayISO()}"></label></div>
+      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="ia" inputmode="decimal" placeholder="0.00"></label><label class="f">Date<input type="date" id="id" value="${sv?sv.service_date:(sh.date||todayISO())}"></label></div>
       <div class="row2"><label class="f">Paid by<select id="ipm"><option>Cash</option><option>Mobile Money</option><option>Bank transfer</option><option>Cheque</option></select></label><label class="f">Note<input type="text" id="in" placeholder="Optional"></label></div>
       ${!sv?progSelect('ip',sh.program):''}
       <button class="btn" data-act="saveincome"${busy}>Save</button></div>`; }
-  case 'expnew': { const sv=svcById(sh.service), pr=progById(sh.program);
+  case 'expnew': { const sv=svcById(sh.service), pr=progById(sh.program), cp=S.expenses.find(e=>e.id===sh.copy);
+    const rec=recentExpenses();
     return `<div class="sheet" role="dialog" aria-label="Record expense">${head('Record expense')}
       ${ctxLine(sv,pr)}
-      ${sv?`<input type="hidden" id="xu" value="${sv.unit_id}">`:unitPicker('xu', pr?.unit_id)}
-      <label class="f">Paid to<input type="text" id="xto" placeholder="Person, shop or project"></label>
-      <label class="f">What for<input type="text" id="xline" placeholder="e.g. Refreshments"></label>
-      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="xa" inputmode="decimal" placeholder="0.00"></label><label class="f">Date<input type="date" id="xd" value="${sv?sv.service_date:todayISO()}"></label></div>
+      ${rec.length&&!cp?`<div class="f"><span class="muted">Recorded before (tap to fill)</span><div class="chips">${rec.map(x=>`<button class="chip" style="border:0;cursor:pointer" data-act="fillexp" data-id="${x.id}">${esc(x.paid_to)} · ${esc(x.purpose)} · ${short(num(x.amount))}</button>`).join('')}</div></div>`:''}
+      ${sv?`<input type="hidden" id="xu" value="${sv.unit_id}">`:unitPicker('xu', pr?.unit_id||cp?.unit_id)}
+      <label class="f">Paid to<input type="text" id="xto" list="xtolist" placeholder="Person, shop or project" value="${esc(cp?.paid_to||'')}"><datalist id="xtolist">${[...new Set(S.expenses.map(e=>e.paid_to))].slice(0,200).map(v=>`<option value="${esc(v)}">`).join('')}</datalist></label>
+      <label class="f">What for<input type="text" id="xline" list="xllist" placeholder="e.g. Refreshments" value="${esc(cp?.purpose||'')}"><datalist id="xllist">${[...new Set(S.expenses.map(e=>e.purpose))].slice(0,200).map(v=>`<option value="${esc(v)}">`).join('')}</datalist></label>
+      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="xa" inputmode="decimal" placeholder="0.00" value="${cp?num(cp.amount):''}"></label><label class="f">Date<input type="date" id="xd" value="${sv?sv.service_date:(sh.date||todayISO())}"></label></div>
       ${!sv?progSelect('xp',sh.program):''}
-      <label class="f">Paid from<input type="text" id="xf" list="xflist" value="${esc(sh.fund||'General fund')}"><datalist id="xflist">${FUNDS.map(f=>`<option value="${esc(f)}">`).join('')}</datalist></label>
-      <label class="f">Budget line<select id="xb"><option value="">— None —</option>${budgetRows().map(b=>`<option value="${b.id}">${esc(b.name)} · ${esc(uName(b.unit_id))}</option>`).join('')}</select></label>
+      <label class="f">Paid from<input type="text" id="xf" list="xflist" value="${esc(sh.fund||cp?.fund||'General fund')}"><datalist id="xflist">${FUNDS.map(f=>`<option value="${esc(f)}">`).join('')}</datalist></label>
+      <label class="f">Budget line<select id="xb"><option value="">— None —</option>${budgetRows().map(b=>`<option value="${b.id}" ${cp&&cp.budget_id===b.id?'selected':''}>${esc(b.name)} · ${esc(uName(b.unit_id))}</option>`).join('')}</select></label>
       <label class="f">Note<input type="text" id="xn" placeholder="Optional"></label>
       <div class="note">The expense waits for approval before it counts against the balance and budget.</div>
       <button class="btn" data-act="saveexp"${busy}>Save expense</button></div>`; }
@@ -779,7 +851,7 @@ function sheetHTML(){
       <div class="sumbar"><div><span>Day Born total</span><b class="num" id="stotal">${fmt(total)}</b></div><button class="btn light" data-act="savesunday" data-id="${sv?.id||''}"${busy}>Save count</button></div></div>`; }
   case 'newservice': case 'editservice': { const s=sh.t==='editservice'?svcById(sh.id):null, pr=progById(sh.program||s?.program_id);
     const kinds=svcKinds(), kind=s?.kind||kinds[0], other=s&&!kinds.includes(s.kind);
-    const defDate=s?.service_date||(pr?(todayISO()>=pr.starts_on&&todayISO()<=pr.ends_on?todayISO():pr.starts_on):(new Date().getDay()===0?todayISO():todayISO()));
+    const defDate=s?.service_date||sh.date||(pr?(todayISO()>=pr.starts_on&&todayISO()<=pr.ends_on?todayISO():pr.starts_on):(new Date().getDay()===0?todayISO():todayISO()));
     return `<div class="sheet" role="dialog" aria-label="Service">${head(s?'Edit service':'New service')}
       ${s?'':unitPicker('svu', pr?.unit_id||mainUnit()?.id)}
       <div class="row2"><label class="f">Date<input type="date" id="svd" value="${defDate}"></label>
@@ -888,8 +960,8 @@ function sheetHTML(){
 
 /* ===================== Render ===================== */
 const MAIN = () => [['home','⌂','Home'],['services','▦','Services'],['members','👥','Members'],['spend','⇄','Expenses'],['budget','◔','Budget']];
-const MORE = () => [...(canDayBorn()?[['dayborn','☀','Day Born']]:[]),...(feat('pledges')?[['fund','◎','Fundraising']]:[]),['reports','▤','Reports'],...(isApprover()?[['activity','↺','Activity']]:[]),['structure','⋔','Structure'],['settings','⚙','Settings']];
-const TITLES = {home:'Home',services:'Services & programs',members:'Members',dayborn:'Day Born',spend:'Expenses',budget:'Budget',fund:'Fundraising',reports:'Reports',activity:'Activity',structure:'Structure',settings:'Settings'};
+const MORE = () => [['history','🗂','History'],...(canDayBorn()?[['dayborn','☀','Day Born']]:[]),...(feat('pledges')?[['fund','◎','Fundraising']]:[]),['reports','▤','Reports'],...(isApprover()?[['activity','↺','Activity']]:[]),['structure','⋔','Structure'],['settings','⚙','Settings']];
+const TITLES = {history:'History · months & years',home:'Home',services:'Services & programs',members:'Members',dayborn:'Day Born',spend:'Expenses',budget:'Budget',fund:'Fundraising',reports:'Reports',activity:'Activity',structure:'Structure',settings:'Settings'};
 function render(){
   const root=$('root'), tabsEl=$('tabs'), layer=$('layer');
   const token = new URLSearchParams(location.search).get('r');
@@ -900,7 +972,7 @@ function render(){
   const desk=isDesk(); document.body.dataset.layout=desk?'desk':'phone';
   if(S.tab==='dayborn'&&!canDayBorn()) S.tab='home';
   if(S.tab==='fund'&&!feat('pledges')) S.tab='home';
-  const views={home,services:servicesView,members:membersView,dayborn:dayBornView,spend:spendView,budget:budgetView,fund:fundView,reports:reportsView,activity:activityView,structure:structureView,settings:settingsView};
+  const views={home,history:historyView,services:servicesView,members:membersView,dayborn:dayBornView,spend:spendView,budget:budgetView,fund:fundView,reports:reportsView,activity:activityView,structure:structureView,settings:settingsView};
   const unitSel=S.units.length>1?`<select class="unitsel" id="unitsel" aria-label="Unit">${['all',...S.units.map(u=>u.id)].map(id=>`<option value="${id}" ${S.view===id?'selected':''}>${id==='all'?esc(S.me?.unit_id?'All my units':C().all):esc(uName(id))}</option>`).join('')}</select>`:`<span class="chip">${esc(S.units[0]?.name||'')}</span>`;
   const navTools=`<span class="navtools"><button class="iconbtn" data-act="goback" aria-label="Back" title="Back">‹</button><button class="iconbtn" data-act="gofwd" aria-label="Forward" title="Forward">›</button><button class="iconbtn" data-act="reload" aria-label="Refresh" title="Refresh">⟳</button></span>`;
   const navBtn=([k,i,l])=>`<button data-act="tab" data-id="${k}" ${S.tab===k?'aria-current="page"':''}><i>${i}</i>${l}</button>`;
@@ -965,9 +1037,14 @@ document.addEventListener('click', async e=>{
     case 'hshow': S.showHigher=true; break;
     case 'hcancel': S.showHigher=false; break;
     case 'bedit': S.editB=id; break;
-    case 'sheet': S.sheet={t:el.dataset.t,id,member:el.dataset.member,fund:el.dataset.fund,service:el.dataset.service,program:el.dataset.program}; if(el.dataset.t==='dayentry') S.sunday=DAYS.map(()=> ''); break;
+    case 'sheet': S.sheet={t:el.dataset.t,id,member:el.dataset.member,fund:el.dataset.fund,service:el.dataset.service,program:el.dataset.program,date:el.dataset.date,copy:el.dataset.copy}; if(el.dataset.t==='dayentry') S.sunday=DAYS.map(()=> ''); break;
     /* services & programs */
     case 'svctab': S.svcTab=id; break;
+    case 'hyear': S.hYear=+id; S.hMonth=null; top0(); break;
+    case 'hmonth': S.hMonth=id?+id:null; if(!S.hYear) S.hYear=historyYears()[0]||YEAR; top0(); break;
+    case 'csvp': exportCSV(id); return;
+    case 'fillexp': { const x=S.expenses.find(e=>e.id===id); if(!x) return; const set=(i,v)=>{ const el=$(i); if(el&&v!=null) el.value=v; };
+      set('xto',x.paid_to); set('xline',x.purpose); set('xa',num(x.amount)); set('xf',x.fund); set('xb',x.budget_id||''); if($('xu')&&$('xu').tagName==='SELECT') set('xu',x.unit_id); toast('Filled from a past expense. Check the amount and date.'); return; }
     case 'opensvc': S.tab='services'; S.service=id; S.program=null; S.svcDraft={}; S.sheet=null; top0(); break;
     case 'closesvc': { const s=svcById(S.service); S.service=null; S.svcDraft={}; if(s?.program_id&&S.lastProg===s.program_id){ S.program=s.program_id; } top0(); break; }
     case 'openprog': S.tab='services'; S.svcTab='programs'; S.program=id; S.lastProg=id; S.service=null; S.sheet=null; top0(); break;
@@ -1087,7 +1164,7 @@ document.addEventListener('click', async e=>{
   }
   render(); pushNav();
 });
-const NAV_KEYS=['tab','member','payee','group','camp','service','program','svcTab','view','spendKind'];
+const NAV_KEYS=['tab','member','payee','group','camp','service','program','svcTab','view','spendKind','hYear','hMonth'];
 const navSnap=()=>{ const o={}; NAV_KEYS.forEach(k=>o[k]=S[k]); return o; };
 let lastNav='';
 function pushNav(){ if(!S.org) return; const snap=navSnap(), j=JSON.stringify(snap); if(j===lastNav) return; if(!lastNav) history.replaceState(snap,''); else history.pushState(snap,'','#'+snap.tab); lastNav=j; }
@@ -1095,11 +1172,11 @@ window.addEventListener('popstate', e=>{ if(!e.state||!S.org) return; Object.ass
 function reportNumbers(){ const sc=scope(), mk=S.reportMonth, [yy,mm]=mk.split('-').map(Number), next=new Date(yy,mm,1).toLocaleDateString('en-CA');
   const inc=liveTx().filter(x=>inScope(x.unit_id)&&ym(x.txn_date)===mk).reduce((s,x)=>s+num(x.amount),0), out=S.expenses.filter(x=>inScope(x.unit_id)&&counted(x)&&ym(x.exp_date)===mk).reduce((s,x)=>s+num(x.amount),0);
   return {label:`${MONTHS[mm-1]} ${yy}`,open:balanceBefore(sc,mk+'-01'),close:balanceBefore(sc,next),inc,out}; }
-function exportCSV(){
-  const mk=S.reportMonth, q=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+function exportCSV(prefix){
+  const mk=prefix||S.reportMonth, q=v=>`"${String(v??'').replace(/"/g,'""')}"`;
   const rows=[['Kind','Date','Unit','Type / Purpose','Member / Paid to','Amount','Status','Receipt','Note']];
-  liveTx().filter(x=>inScope(x.unit_id)&&ym(x.txn_date)===mk).forEach(t=>rows.push(['Income',t.txn_date,uName(t.unit_id),t.category,memberName(t.member_id),num(t.amount),'',t.receipt_no,t.note||'']));
-  S.expenses.filter(x=>inScope(x.unit_id)&&ym(x.exp_date)===mk).forEach(e=>rows.push(['Expense',e.exp_date,uName(e.unit_id),e.purpose,e.paid_to,-num(e.amount),e.voided?'voided':e.status,'EXP-'+e.receipt_no,e.note||'']));
+  liveTx().filter(x=>inScope(x.unit_id)&&x.txn_date.startsWith(mk)).forEach(t=>rows.push(['Income',t.txn_date,uName(t.unit_id),t.category,memberName(t.member_id),num(t.amount),'',t.receipt_no,t.note||'']));
+  S.expenses.filter(x=>inScope(x.unit_id)&&x.exp_date.startsWith(mk)).forEach(e=>rows.push(['Expense',e.exp_date,uName(e.unit_id),e.purpose,e.paid_to,-num(e.amount),e.voided?'voided':e.status,'EXP-'+e.receipt_no,e.note||'']));
   const blob=new Blob(['﻿'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`SikaBook-${mk}.csv`; document.body.appendChild(a); a.click(); a.remove();
 }

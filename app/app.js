@@ -92,7 +92,9 @@ const inProg = (row,p) => row.program_id===p.id || (row.service_id && svcById(ro
 const progTx = p => liveTx().filter(t=>inProg(t,p));
 const progEx = p => S.expenses.filter(e=>!e.voided&&e.status!=='rejected'&&inProg(e,p));
 const dbForService = id => S.counts.find(c=>c.service_id===id);
+const activeCamps = (unitId, date) => S.camps.filter(c=>c.unit_id===unitId && (!c.ends_on || c.ends_on>=date) && c.created_at.slice(0,10)<=date);
 const dayBornAllowedFor = unitId => isChurch() && feat('dayborn') && unitById(unitId)?.is_main;
+function draftSum(d){ return Object.entries(d).filter(([k])=>!k.startsWith('__')||k.startsWith('__fund:')||k==='__otherAmt').reduce((a,[,v])=>a+(parseFloat(v)||0),0); }
 function datesBetween(a,b){ const out=[]; const d=new Date(a+'T00:00:00'), end=new Date(b+'T00:00:00'); while(d<=end && out.length<62){ out.push(d.toLocaleDateString('en-CA')); d.setDate(d.getDate()+1); } return out; }
 const progStatus = p => { const t=todayISO(); return t<p.starts_on?['gold','Upcoming']:t>p.ends_on?['','Ended']:['good','On now']; };
 
@@ -536,16 +538,16 @@ function servicesView(){
 }
 function serviceDetail(s){
   const tx=svcTx(s.id), ex=svcEx(s.id), inc=sumAmt(tx), out=sumAmt(ex.filter(counted)), pend=ex.filter(e=>e.status==='pending'), p=progById(s.program_id), db=dbForService(s.id);
-  const camps=S.camps.filter(c=>c.unit_id===s.unit_id);
+  const camps=activeCamps(s.unit_id, s.service_date);
   const d=S.svcDraft, inp=(k,ph)=>`<input type="number" inputmode="decimal" min="0" data-svc="${esc(k)}" value="${esc(d[k]||'')}" placeholder="${ph||'0.00'}" style="text-align:right">`;
   const itemRows=svcItems().map(it=>{
     const done=tx.filter(t=>t.category===it), doneTxt=done.length?`<small>Recorded: ${fmt(sumAmt(done))}</small>`:'';
     if(it==='Day Born'){ if(!dayBornAllowedFor(s.unit_id)) return '';
       return `<div class="day"><div><b>Day Born</b><small>${db?`Recorded: ${fmt(db.amounts.reduce((a,v)=>a+num(v),0))} (8 groups)`:'8 day groups'}</small></div>${db?`<button class="btn small ghost" data-act="tab" data-id="dayborn">View</button>`:`<button class="btn small" data-act="sheet" data-t="dayentry" data-id="${s.id}">Enter 8 groups</button>`}</div>`; }
-    if(it==='Fundraising') return `<div class="day"><div><b>Fundraising</b>${doneTxt}${camps.length?`<select id="svccamp" style="margin-top:6px;padding:6px 8px"><option value="">General (no campaign)</option>${camps.map(c=>`<option value="${c.id}" ${d.__camp===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>`:''}</div>${inp('Fundraising')}</div>`;
+    if(it==='Fundraising') return camps.map(c=>{ const got=sumAmt(tx.filter(t=>t.campaign_id===c.id)); return `<div class="day"><div><b>Fundraising · ${esc(c.name)}</b><small>${got?`Recorded today: ${fmt(got)} · `:''}target ${fmt(c.target)}${c.ends_on?' · ends '+dShort(c.ends_on):''}</small></div>${inp('__fund:'+c.id)}</div>`; }).join('');
     return `<div class="day"><div><b>${esc(it)}</b>${doneTxt}</div>${inp(it)}</div>`;
   }).join('');
-  const draftTotal=Object.entries(d).filter(([k])=>!k.startsWith('__')).reduce((a,[,v])=>a+(parseFloat(v)||0),0)+(parseFloat(d.__otherAmt)||0);
+  const draftTotal=draftSum(d);
   return `<button class="back" data-act="closesvc">‹ Services</button>
   <div class="pagehead" style="margin-top:8px"><h2 style="display:block">${esc(s.title||s.kind)}</h2><span class="muted">${dLong(s.service_date)} · ${esc(uName(s.unit_id))}${s.title?' · '+esc(s.kind):''}</span>
     <div class="chips">${p?`<button class="chip gold" data-act="openprog" data-id="${p.id}" style="border:0;cursor:pointer">🎪 ${esc(p.name)}</button>`:''}${s.counter1||s.counter2?`<span class="chip">Counted by ${esc([s.counter1,s.counter2].filter(Boolean).join(' & '))}</span>`:''}</div></div>
@@ -561,6 +563,7 @@ function serviceDetail(s){
         <label class="btn light" style="display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer">📷 Read a photo of my written sheet<input type="file" id="photoin" data-service="${s.id}" accept="image/*" capture="environment" hidden></label>
         <span class="muted">Take a clear photo of your written record. SikaBook reads the numbers and shows them to you to check before anything is saved. Or type them below.</span>
         <div>${itemRows}
+          ${svcItems().includes('Fundraising')&&!camps.length&&feat('pledges')?`<span class="muted" style="display:block;padding:6px 0">No fundraising is running on this date. <button class="link" data-act="tab" data-id="fund">Start one</button> and it will appear here.</span>`:''}
           <div class="day"><div><b>Other</b><input type="text" data-svc="__otherCat" value="${esc(d.__otherCat||'')}" placeholder="e.g. Harvest, Welfare" style="margin-top:6px;padding:6px 8px"></div>${inp('__otherAmt')}</div>
         </div>
         <div class="row2"><label class="f">Counted by<input type="text" id="sc1" value="${esc(s.counter1||'')}" placeholder="Counter 1"></label><label class="f">&nbsp;<input type="text" id="sc2" value="${esc(s.counter2||'')}" placeholder="Counter 2"></label></div>
@@ -950,7 +953,8 @@ document.addEventListener('click', async e=>{
       if(id) return act(()=>must(sb.from('programs').update(rec).eq('id',id)),'Program saved.');
       let row; return act(async()=>{ row=await must(sb.from('programs').insert({...rec,unit_id:val('pru')}).select().single()); },`${n} created.`).then(()=>{ if(row){ S.tab='services'; S.svcTab='programs'; S.program=row.id; S.lastProg=row.id; render(); } }); }
     case 'savesvc': { const s=svcById(id); if(!s) return; const d=S.svcDraft, rows=[];
-      svcItems().filter(it=>it!=='Day Born').forEach(it=>{ const v=Math.round((parseFloat(d[it])||0)*100)/100; if(v>0) rows.push({unit_id:s.unit_id,txn_date:s.service_date,category:it,amount:v,service_id:s.id,program_id:s.program_id,method:'Cash',campaign_id:it==='Fundraising'?(d.__camp||null):null,note:s.title||s.kind}); });
+      svcItems().filter(it=>it!=='Day Born'&&it!=='Fundraising').forEach(it=>{ const v=Math.round((parseFloat(d[it])||0)*100)/100; if(v>0) rows.push({unit_id:s.unit_id,txn_date:s.service_date,category:it,amount:v,service_id:s.id,program_id:s.program_id,method:'Cash',note:s.title||s.kind}); });
+      if(svcItems().includes('Fundraising')) activeCamps(s.unit_id,s.service_date).forEach(c=>{ const v=Math.round((parseFloat(d['__fund:'+c.id])||0)*100)/100; if(v>0) rows.push({unit_id:s.unit_id,txn_date:s.service_date,category:'Fundraising',amount:v,service_id:s.id,program_id:s.program_id,method:'Cash',campaign_id:c.id,note:c.name}); });
       const oa=Math.round((parseFloat(d.__otherAmt)||0)*100)/100, oc=(d.__otherCat||'').trim();
       if(oa>0){ if(!oc){ toast('Type what the “Other” amount is for.'); return; } rows.push({unit_id:s.unit_id,txn_date:s.service_date,category:oc,amount:oa,service_id:s.id,program_id:s.program_id,method:'Cash',note:s.title||s.kind}); }
       const c1=val('sc1').trim(), c2=val('sc2').trim(), cChanged=c1!==(s.counter1||'')||c2!==(s.counter2||'');
@@ -958,7 +962,7 @@ document.addEventListener('click', async e=>{
       return act(async()=>{ if(rows.length) await must(sb.from('transactions').insert(rows)); if(cChanged) await must(sb.from('services').update({counter1:c1||null,counter2:c2||null}).eq('id',s.id)); S.svcDraft={}; }, rows.length?`Saved ${rows.length} item${rows.length>1?'s':''} · ${fmt(rows.reduce((a,r)=>a+r.amount,0))}.`:'Saved.'); }
     case 'savephoto': { const P=S.photo, sv=svcById(P?.service); if(!P||!sv) return; const R=P.result||{};
       const items=(R.items||[]).filter(x=>x&&x.amount>0), exps=(R.expenses||[]).filter(x=>x&&x.amount>0), rows=[], exRows=[];
-      items.forEach((_,i)=>{ if(!chk('phk'+i)) return; const c=val('phc'+i).trim(), v=Math.round((parseFloat(val('pha'+i))||0)*100)/100; if(c&&v>0) rows.push({unit_id:sv.unit_id,txn_date:sv.service_date,category:c,amount:v,service_id:sv.id,program_id:sv.program_id,method:'Cash',note:(sv.title||sv.kind)+' (from photo)'}); });
+      items.forEach((_,i)=>{ if(!chk('phk'+i)) return; const c=val('phc'+i).trim(), v=Math.round((parseFloat(val('pha'+i))||0)*100)/100; if(c&&v>0){ const ac=activeCamps(sv.unit_id,sv.service_date), cid=(/fund/i.test(c)&&ac.length===1)?ac[0].id:null; rows.push({unit_id:sv.unit_id,txn_date:sv.service_date,category:cid?'Fundraising':c,amount:v,service_id:sv.id,program_id:sv.program_id,method:'Cash',campaign_id:cid,note:(sv.title||sv.kind)+' (from photo)'}); } });
       exps.forEach((x,i)=>{ if(!chk('pxk'+i)) return; const v=Math.round((parseFloat(val('pxa'+i))||0)*100)/100, pp=val('pxp'+i).trim()||'Expense', to=val('pxt'+i).trim()||pp; if(v>0) exRows.push({unit_id:sv.unit_id,paid_to:to,purpose:pp,amount:v,exp_date:sv.service_date,fund:'General fund',service_id:sv.id,program_id:sv.program_id,note:'From photo'}); });
       const dbAm=DAYS.map((_,i)=>{ const el=$('phd'+i); return el?Math.round((parseFloat(el.value)||0)*100)/100:0; }), dbTot=dbAm.reduce((a,b)=>a+b,0);
       if(!rows.length&&!exRows.length&&!dbTot){ toast('Nothing ticked to save.'); return; }
@@ -1056,12 +1060,11 @@ function exportCSV(){
 }
 document.addEventListener('input', e=>{
   if(e.target.id==='msearch'){ S.q=e.target.value; const el=$('mlist'); if(el) el.innerHTML=memberList(membersInScope()); }
-  if(e.target.dataset.svc!==undefined){ S.svcDraft[e.target.dataset.svc]=e.target.value; const el=$('svctotal'); if(el){ const d=S.svcDraft; el.textContent=fmt(Object.entries(d).filter(([k])=>!k.startsWith('__')).reduce((a,[,v])=>a+(parseFloat(v)||0),0)+(parseFloat(d.__otherAmt)||0)); } }
+  if(e.target.dataset.svc!==undefined){ S.svcDraft[e.target.dataset.svc]=e.target.value; const el=$('svctotal'); if(el){ const d=S.svcDraft; el.textContent=fmt(draftSum(d)); } }
   if(e.target.dataset.day!==undefined){ S.sunday[+e.target.dataset.day]=e.target.value; const el=$('stotal'); if(el) el.textContent=fmt(S.sunday.reduce((s,v)=>s+(parseFloat(v)||0),0)); }
 });
 document.addEventListener('change', async e=>{
   if(e.target.id==='unitsel'){ S.view=e.target.value; S.member=S.payee=S.camp=null; S.group=null; render(); }
-  if(e.target.id==='svccamp'){ S.svcDraft.__camp=e.target.value; }
   if(e.target.id==='photoin'&&e.target.files&&e.target.files[0]){ readPhoto(e.target.files[0], e.target.dataset.service); e.target.value=''; }
   if(e.target.id==='rmonth'){ S.reportMonth=e.target.value||S.reportMonth; render(); }
   if(e.target.id==='orgsel'){ try{ localStorage.setItem('sikabook.org',e.target.value); }catch(err){} await loadOrgs(); S.view='all'; await refresh(); }
@@ -1128,5 +1131,8 @@ async function boot(){
     }
   });
 }
-if('serviceWorker' in navigator && location.protocol==='https:'){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+if('serviceWorker' in navigator && location.protocol==='https:'){
+  navigator.serviceWorker.register('sw.js').then(r=>{ r.update(); setInterval(()=>r.update(), 30*60*1000); }).catch(()=>{});
+  let reloaded=false; navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(reloaded||S.sheet) return; reloaded=true; location.reload(); });
+}
 boot();

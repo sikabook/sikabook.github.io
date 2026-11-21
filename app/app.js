@@ -876,6 +876,7 @@ function render(){
   if(S.tab==='fund'&&!feat('pledges')) S.tab='home';
   const views={home,services:servicesView,members:membersView,dayborn:dayBornView,spend:spendView,budget:budgetView,fund:fundView,reports:reportsView,activity:activityView,structure:structureView,settings:settingsView};
   const unitSel=S.units.length>1?`<select class="unitsel" id="unitsel" aria-label="Unit">${['all',...S.units.map(u=>u.id)].map(id=>`<option value="${id}" ${S.view===id?'selected':''}>${id==='all'?esc(S.me?.unit_id?'All my units':C().all):esc(uName(id))}</option>`).join('')}</select>`:`<span class="chip">${esc(S.units[0]?.name||'')}</span>`;
+  const navTools=`<span class="navtools"><button class="iconbtn" data-act="goback" aria-label="Back" title="Back">‹</button><button class="iconbtn" data-act="gofwd" aria-label="Forward" title="Forward">›</button><button class="iconbtn" data-act="reload" aria-label="Refresh" title="Refresh">⟳</button></span>`;
   const navBtn=([k,i,l])=>`<button data-act="tab" data-id="${k}" ${S.tab===k?'aria-current="page"':''}><i>${i}</i>${l}</button>`;
   const content=views[S.tab]();
   const quickBtns=canWrite()?`<div class="btnrow"><button class="btn ghost" data-act="sheet" data-t="income">＋ Income</button><button class="btn ghost" data-act="sheet" data-t="expnew">− Expense</button></div>`:'';
@@ -884,8 +885,8 @@ function render(){
     ? `<div class="shell"><aside class="side"><div class="logo"><i>₵</i><span>SikaBook</span></div><span class="orgname">${esc(S.org.name)}</span>${unitSel}
         <nav aria-label="Main">${MAIN().map(navBtn).join('')}<span class="navlab">More</span>${MORE().map(navBtn).join('')}</nav>
         <span class="muted" style="font-size:12px">${esc(S.user.email)} · ${esc(ROLE_LABEL(role()))}</span>${layoutToggle}</aside>
-        <main class="main"><div class="deskhead"><div><span class="muted">${esc(scopeLabel())}</span><h1>${TITLES[S.tab]}</h1></div>${quickBtns}</div>${content}</main></div>`
-    : `<div class="shell"><main class="main">${S.forcePhone?`<div class="demo"><small>Phone preview on a laptop</small>${layoutToggle}</div>`:''}<header class="top"><div class="logo"><i>₵</i><span>${esc(S.org.name)}</span></div>${unitSel}<button class="iconbtn" data-act="sheet" data-t="more" aria-label="More">☰</button></header>${content}</main></div>`;
+        <main class="main"><div class="deskhead"><div><span class="muted">${esc(scopeLabel())}</span><h1>${TITLES[S.tab]}</h1></div><div class="btnrow">${navTools}${quickBtns}</div></div>${content}</main></div>`
+    : `<div class="shell"><main class="main">${S.forcePhone?`<div class="demo"><small>Phone preview on a laptop</small>${layoutToggle}</div>`:''}<header class="top"><div class="logo"><i>₵</i><span>${esc(S.org.name)}</span></div>${unitSel}<button class="iconbtn" data-act="sheet" data-t="more" aria-label="More">☰</button></header><div class="navbar">${navTools}</div>${content}</main></div>`;
   const tabs=MAIN();
   tabsEl.innerHTML=`<div style="--n:${tabs.length}">${tabs.map(navBtn).join('')}</div>`;
   layer.innerHTML=S.sheet?`<div class="sheetbg" data-act="bg">${sheetHTML()}</div>`:'';
@@ -922,6 +923,9 @@ document.addEventListener('click', async e=>{
       catch(err){ toast(errText(err)); } finally{ S.busy=false; } break; }
     /* navigation */
     case 'layout': S.forcePhone=id==='phone'; break;
+    case 'goback': if(S.sheet){ S.sheet=null; break; } history.back(); return;
+    case 'gofwd': history.forward(); return;
+    case 'reload': { const b=el; b.disabled=true; try{ await loadAll(); toast('Up to date.'); }catch(err){ toast(errText(err)); } b.disabled=false; render(); return; }
     case 'tab': S.tab=id; S.member=S.payee=S.camp=null; S.group=null; S.sheet=null; S.service=S.program=null; top0(); break;
     case 'view': S.view=id; top0(); break;
     case 'member': S.member=id||null; top0(); break;
@@ -1045,8 +1049,13 @@ document.addEventListener('click', async e=>{
     case 'csv': exportCSV(); return;
     case 'sharereport': { const r=reportNumbers(); window.open('https://wa.me/?text='+encodeURIComponent(`${S.org.name} — ${scopeLabel()}\nStatement for ${r.label}\nOpening: ${fmt(r.open)}\nIncome: ${fmt(r.inc)}\nExpenses: ${fmt(r.out)}\nClosing: ${fmt(r.close)}`),'_blank','noopener'); return; }
   }
-  render();
+  render(); pushNav();
 });
+const NAV_KEYS=['tab','member','payee','group','camp','service','program','svcTab','view','spendKind'];
+const navSnap=()=>{ const o={}; NAV_KEYS.forEach(k=>o[k]=S[k]); return o; };
+let lastNav='';
+function pushNav(){ if(!S.org) return; const snap=navSnap(), j=JSON.stringify(snap); if(j===lastNav) return; if(!lastNav) history.replaceState(snap,''); else history.pushState(snap,'','#'+snap.tab); lastNav=j; }
+window.addEventListener('popstate', e=>{ if(!e.state||!S.org) return; Object.assign(S,e.state); S.sheet=null; lastNav=JSON.stringify(navSnap()); render(); top0(); });
 function reportNumbers(){ const sc=scope(), mk=S.reportMonth, [yy,mm]=mk.split('-').map(Number), next=new Date(yy,mm,1).toLocaleDateString('en-CA');
   const inc=liveTx().filter(x=>inScope(x.unit_id)&&ym(x.txn_date)===mk).reduce((s,x)=>s+num(x.amount),0), out=S.expenses.filter(x=>inScope(x.unit_id)&&counted(x)&&ym(x.exp_date)===mk).reduce((s,x)=>s+num(x.amount),0);
   return {label:`${MONTHS[mm-1]} ${yy}`,open:balanceBefore(sc,mk+'-01'),close:balanceBefore(sc,next),inc,out}; }

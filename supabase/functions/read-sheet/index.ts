@@ -61,7 +61,9 @@ Deno.serve(async (req) => {
     if (!key) return json({ error: 'Photo reading is not switched on yet (missing GEMINI_API_KEY).' }, 503);
 
     // Who is asking? Must be signed in and able to record money somewhere.
-    const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
+    // Public (publishable/anon) key: from the environment, or the one the app itself sent.
+    const publicKey = Deno.env.get('SUPABASE_ANON_KEY') || req.headers.get('apikey') || '';
+    const sb = createClient(Deno.env.get('SUPABASE_URL')!, publicKey, {
       global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
     });
     const { data: { user } } = await sb.auth.getUser();

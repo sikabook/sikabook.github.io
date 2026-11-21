@@ -1,0 +1,902 @@
+<title>SikaBook Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap">
+<style>
+/* Layout: setup screen first; then laptop = sidebar + two-column content, phone = single column + bottom tabs. */
+:root{
+  --bg:#EEF2F0; --surface:#FFFFFF; --surface-2:#F4F7F5; --ink:#13211C; --muted:#5B6A64; --line:#DCE3DF;
+  --brand:#0E5A4A; --brand-2:#13735F; --on-brand:#FFFFFF; --gold:#9A6A12; --gold-soft:#F6EBD4;
+  --good:#2C7A4B; --good-soft:#E2F2E8; --warn:#A06410; --warn-soft:#FBEFD9; --bad:#B23A30; --bad-soft:#F9E2DF;
+  --shadow:0 1px 2px rgba(19,33,28,.06),0 4px 14px rgba(19,33,28,.06);
+  --f-head:"Sora",ui-sans-serif,system-ui,sans-serif; --f-body:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0B1311; --surface:#131E1B; --surface-2:#1A2722; --ink:#E4EDE9; --muted:#93A49D; --line:#26342F;
+  --brand:#17705D; --brand-2:#3FAE94; --on-brand:#FFFFFF; --gold:#E0B154; --gold-soft:#3A2F17;
+  --good:#5CC48A; --good-soft:#163826; --warn:#E3A746; --warn-soft:#3B2C12; --bad:#EE7A6F; --bad-soft:#3E1C19;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0B1311; --surface:#131E1B; --surface-2:#1A2722; --ink:#E4EDE9; --muted:#93A49D; --line:#26342F;
+  --brand:#17705D; --brand-2:#3FAE94; --on-brand:#FFFFFF; --gold:#E0B154; --gold-soft:#3A2F17;
+  --good:#5CC48A; --good-soft:#163826; --warn:#E3A746; --warn-soft:#3B2C12; --bad:#EE7A6F; --bad-soft:#3E1C19;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--f-head);text-wrap:balance;margin:0}
+.num{font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--brand-2);outline-offset:2px}
+
+.shell{max-width:460px;margin:0 auto;padding-block:12px 96px}
+[data-layout="desk"] .shell{max-width:1260px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:28px;padding-block:20px 40px}
+[data-layout="setup"] .tabs{display:none}
+.main{min-width:0}
+.side{position:sticky;top:20px;align-self:start;display:flex;flex-direction:column;gap:14px}
+.side nav{display:flex;flex-direction:column;gap:2px}
+.side nav button{display:flex;gap:10px;align-items:center;width:100%;padding:9px 12px;border-radius:10px;border:0;background:none;text-align:left;font-weight:500;color:var(--muted)}
+.side nav button i{font-style:normal;width:20px;text-align:center}
+.side nav button[aria-current="page"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);font-weight:600}
+.side nav button:hover{color:var(--ink)}
+.side .navlab{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:10px 12px 2px}
+.grid2{display:flex;flex-direction:column;gap:14px}
+[data-layout="desk"] .grid2{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px;align-items:start}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+[data-layout="desk"] .tiles{grid-template-columns:repeat(4,1fr)}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.tile span{font-size:12.5px;color:var(--muted)} .tile b{font-variant-numeric:tabular-nums;font-size:19px;font-family:var(--f-head)}
+
+.demo{display:flex;flex-direction:column;gap:8px;background:var(--gold-soft);border-radius:14px;padding:10px 12px;margin-bottom:12px}
+.side .demo{margin:0}
+.demo small{font-size:12px;color:var(--muted);letter-spacing:.02em}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 11px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.logo{display:flex;align-items:center;gap:8px;font-family:var(--f-head);font-weight:700;font-size:18px;min-width:0}
+.logo i{width:30px;height:30px;border-radius:9px;background:var(--brand);display:grid;place-items:center;color:#F6EBD4;font-style:normal;font-size:15px;flex:none}
+.logo span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.orgname{font-size:12.5px;color:var(--muted);font-weight:500}
+.unitsel{flex:1;min-width:0;max-width:200px}
+.side .unitsel{max-width:none}
+select,input[type=text],input[type=number]{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 10px}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 11px;font-size:15px;white-space:nowrap}
+.deskhead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.deskhead h1{font-size:26px}
+
+.hero{background:linear-gradient(150deg,var(--brand),var(--brand-2));color:var(--on-brand);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow)}
+.hero .lab{font-size:12px;opacity:.85;letter-spacing:.06em;text-transform:uppercase}
+.hero .big{font-family:var(--f-head);font-size:32px;font-weight:700}
+.hero .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hero .pill{background:rgba(255,255,255,.14);border-radius:12px;padding:10px}
+.hero .pill span{display:block;font-size:12px;opacity:.85}
+.hero .pill b{font-size:17px}
+
+.stack{display:flex;flex-direction:column;gap:14px;margin-top:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card h3{font-size:15px;font-weight:600}
+.cardhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.link{color:var(--brand-2);font-size:13px;font-weight:600;background:none;border:0;padding:0;text-align:left}
+.muted{color:var(--muted);font-size:13px}
+.quick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.quick button{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12.5px;font-weight:500}
+.quick button i{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-style:normal;font-size:17px;background:var(--surface-2);color:var(--brand-2)}
+.alert{display:flex;gap:10px;align-items:center;background:var(--warn-soft);color:var(--ink);border-radius:14px;padding:12px;border:0;text-align:left;width:100%}
+.alert b{color:var(--warn)}
+
+.bars{display:flex;flex-direction:column;gap:12px}
+.bar{display:grid;grid-template-columns:1fr auto;gap:4px 10px;font-size:13.5px}
+.track{grid-column:1/-1;height:9px;border-radius:99px;background:var(--surface-2);overflow:hidden;position:relative}
+.fill{height:100%;border-radius:99px;background:var(--brand-2);position:absolute;left:0;top:0}
+.fill.soft{background:var(--brand-2);opacity:.3}
+.fill.warn{background:var(--warn)} .fill.bad{background:var(--bad)} .fill.gold{background:var(--gold)}
+.pace{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink);opacity:.55}
+
+.list{display:flex;flex-direction:column}
+.item{display:flex;align-items:center;gap:12px;padding:10px 0;border:0;border-top:1px solid var(--line);background:none;text-align:left;width:100%}
+.item:first-child{border-top:0}
+button.item:hover .t b{color:var(--brand-2)}
+.item .t{flex:1;min-width:0}
+.item .t b{display:block;font-weight:500;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .t small{color:var(--muted);font-size:12.5px}
+.av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:13px;background:var(--surface-2);color:var(--brand-2);flex:none}
+.amt{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.amt.in{color:var(--good)} .amt.out{color:var(--bad)}
+.chev{color:var(--muted)}
+.right{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 9px;border-radius:99px;background:var(--surface-2);color:var(--muted);font-weight:500;white-space:nowrap}
+.chip.good{background:var(--good-soft);color:var(--good)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.bad{background:var(--bad-soft);color:var(--bad)} .chip.gold{background:var(--gold-soft);color:var(--gold)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+
+.pagehead{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+.pagehead h2{font-size:22px}
+.pagehead.row{flex-direction:row;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap}
+[data-layout="desk"] .pagehead h2{display:none}
+.back{background:none;border:0;padding:0;color:var(--brand-2);font-weight:600;font-size:14px;align-self:flex-start}
+
+.lock{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:26px 14px}
+.lock i{font-style:normal;font-size:28px}
+
+.months{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+[data-layout="desk"] .months{grid-template-columns:repeat(6,1fr)}
+.mo{border-radius:10px;padding:7px 4px;text-align:center;font-size:12px;background:var(--surface-2)}
+.mo b{display:block;font-size:12.5px;font-variant-numeric:tabular-nums}
+.mo.paid{background:var(--good-soft);color:var(--good)} .mo.miss{background:var(--bad-soft);color:var(--bad)} .mo.future{color:var(--muted)}
+.mini{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.mini div{background:var(--surface-2);border-radius:12px;padding:10px}
+.mini span{display:block;font-size:12px;color:var(--muted)} .mini b{font-variant-numeric:tabular-nums}
+
+.tbl{overflow-x:auto;margin:0 -14px;padding:0 14px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface);z-index:1}
+td:first-child button{background:none;border:0;padding:0;text-align:left;font-weight:600;color:var(--ink)}
+td:first-child button small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+td:first-child button:hover{color:var(--brand-2)}
+tr.total td{font-weight:700;border-bottom:0;border-top:2px solid var(--line)}
+td.sum,th.sum{background:var(--surface-2)}
+td.neg{color:var(--bad)} td.pos{color:var(--good)}
+
+.chart svg{width:100%;height:auto;display:block;overflow:visible}
+.ct{fill:var(--muted);font-size:11px;font-family:var(--f-body)}
+.ctv{fill:var(--ink);font-size:11.5px;font-weight:600;font-family:var(--f-body)}
+.cg{stroke:var(--line);stroke-width:1}
+.cb{fill:var(--brand-2)} .cb.last{fill:var(--gold)}
+.ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ln.a{stroke:var(--brand-2)} .ln.b{stroke:var(--muted);stroke-dasharray:5 5}
+.ar{fill:var(--brand-2);opacity:.12}
+.dot{fill:var(--brand-2);stroke:var(--surface);stroke-width:2}
+.dot.b{fill:var(--muted)}
+.hit{fill:transparent;cursor:pointer}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:16px;height:3px;border-radius:2px;background:var(--brand-2);display:inline-block}
+.sw.b{background:repeating-linear-gradient(90deg,var(--muted) 0 5px,transparent 5px 9px)}
+.tip{position:fixed;z-index:40;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12.5px;padding:6px 9px;border-radius:8px;transform:translate(-50%,calc(-100% - 10px));white-space:nowrap}
+
+.day{display:grid;grid-template-columns:1fr 120px;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.day:first-of-type{border-top:0}
+.day b{font-weight:600;font-size:14.5px} .day small{display:block;color:var(--muted);font-size:12.5px}
+.day input{text-align:right;font-variant-numeric:tabular-nums}
+.sumbar{position:sticky;bottom:0;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.sumbar span{font-size:12px;opacity:.8;display:block} .sumbar b{font-family:var(--f-head);font-size:20px}
+.btn{border:0;border-radius:12px;padding:10px 14px;font-weight:600;background:var(--brand);color:var(--on-brand)}
+.btn.light{background:var(--gold-soft);color:var(--ink)} .btn.ghost{background:var(--surface-2);color:var(--ink)} .btn.small{padding:6px 10px;font-size:13px;border-radius:9px}
+.btn.full{width:100%}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted);font-weight:500}
+.toggle{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.toggle:first-of-type{border-top:0}
+.toggle input{width:20px;height:20px;accent-color:var(--brand-2);flex:none}
+.toggle small{display:block;color:var(--muted);font-size:12.5px}
+
+.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);z-index:5}
+[data-layout="desk"] .tabs{display:none}
+.tabs div{max-width:460px;margin:0 auto;display:grid;grid-template-columns:repeat(var(--n),1fr)}
+.tabs button{background:none;border:0;padding:9px 2px 10px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11.5px;color:var(--muted);font-weight:500}
+.tabs button i{font-style:normal;font-size:19px;line-height:1}
+.tabs button[aria-current="page"]{color:var(--brand-2);font-weight:700}
+
+.line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.line:first-child{border-top:0}
+.tree{display:flex;flex-direction:column;gap:6px}
+.node{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--surface)}
+.node.on{border-color:var(--brand-2)}
+
+.sheetbg{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+[data-layout="desk"] .sheetbg{align-items:center}
+.sheet{background:var(--surface);width:100%;max-width:480px;border-radius:20px 20px 0 0;padding:18px max(16px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
+[data-layout="desk"] .sheet{border-radius:20px;padding:22px}
+.sheethead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.x{background:var(--surface-2);border:0;border-radius:99px;width:32px;height:32px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:9px 14px;font-size:14px;margin:0}
+.kv dt{color:var(--muted)} .kv dd{margin:0;text-align:right;font-weight:500}
+.bigamt{font-family:var(--f-head);font-size:30px;font-weight:700}
+.menu{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.menu button{background:var(--surface-2);border:0;border-radius:14px;padding:14px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:13px;font-weight:500}
+.menu button i{font-style:normal;font-size:20px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;max-width:90vw}
+.note{font-size:12.5px;color:var(--muted);background:var(--surface-2);border-radius:10px;padding:9px 11px}
+
+/* setup */
+.setup{max-width:620px;margin:0 auto;padding-block:28px 48px;display:flex;flex-direction:column;gap:18px}
+.setup .brand{display:flex;align-items:center;gap:10px}
+.setup h1{font-size:28px;line-height:1.2}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.choice button{background:var(--surface);border:2px solid var(--line);border-radius:16px;padding:16px;text-align:left;display:flex;flex-direction:column;gap:6px}
+.choice button i{font-style:normal;font-size:26px}
+.choice button b{font-family:var(--f-head);font-size:17px}
+.choice button small{color:var(--muted);font-size:12.5px;line-height:1.4}
+.choice button[aria-pressed="true"]{border-color:var(--brand-2);background:var(--surface-2)}
+.stepn{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+@media (max-width:420px){.choice{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:no-preference){.card,.hero,.tile{animation:up .25s ease both}@keyframes up{from{transform:translateY(4px)}to{transform:none}}}
+</style>
+
+<div id="root"></div>
+<nav class="tabs" id="tabs"></nav>
+<div id="layer"></div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+/* ===== Currency & terms ===== */
+const CURRENCIES = [['GHS','GH₵','Ghana cedi'],['NGN','₦','Nigerian naira'],['USD','$','US dollar'],['GBP','£','British pound'],['EUR','€','Euro'],['CAD','C$','Canadian dollar'],['KES','KSh','Kenyan shilling'],['ZAR','R','South African rand'],['XOF','CFA','West African CFA franc']];
+const TERMS = {
+  church:{top:'Main Church', topKind:'Station', sub:'Society', subs:'societies', all:'Whole station', higher:['Circuit','District','National'], tithe:'Tithe', thanks:'Thanksgiving',
+          admin:'Station admin', fin:'Financial Secretary', income:['Offering','Tithe','Thanksgiving','Monthly dues','Welfare dues','Funeral dues','Contribution','Fundraising'], topOnly:['Tithe','Welfare dues','Funeral dues']},
+  org:{top:'Head Office', topKind:'Head office', sub:'Department', subs:'departments', all:'Whole organization', higher:['Region','Country','Group'], tithe:'Monthly contribution', thanks:'Special donations',
+          admin:'Admin', fin:'Treasurer', income:['Donations','Monthly contributions','Special donations','Monthly dues','Welfare dues','Sales','Grants','Fundraising'], topOnly:['Monthly contributions','Welfare dues']},
+};
+const C = () => TERMS[S.type];
+const curSym = () => (CURRENCIES.find(c=>c[0]===S.cur)||CURRENCIES[0])[1];
+const fmt = n => (n<0?'−':'') + curSym() + ' ' + Math.round(Math.abs(n)).toLocaleString('en-US');
+const short = v => Math.abs(v)>=1000 ? (v/1000).toFixed(Math.abs(v)%1000?1:0)+'k' : String(Math.round(v));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const NOW_M = 10;
+
+/* ===== Example data (made up) ===== */
+let units = [
+  {id:'station', name:'Main Church', kind:'top', open:35000},
+  {id:'youth', name:'Youth Fellowship', kind:'sub', open:4200},
+  {id:'choir', name:'Church Choir', kind:'sub', open:2600},
+  {id:'ss', name:'Sunday School', kind:'sub', open:900},
+  {id:'women', name:"Women's Fellowship", kind:'sub', open:3100},
+];
+let higher = [];
+const DAYS = [
+  {d:'Sunday',m:'Kwasi',f:'Akosua',base:400},{d:'Monday',m:'Kwadwo',f:'Adwoa',base:320},{d:'Tuesday',m:'Kwabena',f:'Abena',base:350},
+  {d:'Wednesday',m:'Kwaku',f:'Akua',base:290},{d:'Thursday',m:'Yaw',f:'Yaa',base:340},{d:'Friday',m:'Kofi',f:'Afua',base:390},
+  {d:'Saturday',m:'Kwame',f:'Amma',base:315},{d:'No day name',m:'Day not known',f:'',base:95}];
+let SUNDAYS = ['6 Sep','13 Sep','20 Sep','27 Sep','4 Oct','11 Oct','18 Oct','25 Oct','1 Nov','8 Nov','15 Nov'];
+let SUN_ISO = ['2026-09-06','2026-09-13','2026-09-20','2026-09-27','2026-10-04','2026-10-11','2026-10-18','2026-10-25','2026-11-01','2026-11-08','2026-11-15'];
+let DB = DAYS.map((g,gi)=>SUNDAYS.map((_,s)=>Math.max(0, g.base + ((s*37+gi*53)%90) - 40 + (s===7?120:0))));
+const sunTotal = s => DB.reduce((t,row)=>t+row[s],0);
+const groupTotal = g => DB[g].reduce((a,b)=>a+b,0);
+
+const T = (u,d,cat,desc,amt) => ({u,d,cat,desc,amt});
+let txs = [
+  T('station','2026-11-01','Offering','Sunday offering',1820), T('station','2026-11-08','Offering','Sunday offering',1760), T('station','2026-11-15','Offering','Sunday offering',1905),
+  T('station','2026-11-05','Tithe','Tithe — 41 members',6200), T('station','2026-11-15','Thanksgiving','Thanksgiving — Asante family',850),
+  T('station','2026-11-10','Welfare dues','Welfare dues',640), T('station','2026-11-10','Funeral dues','Funeral dues',420),
+  T('youth','2026-11-08','Monthly dues','Youth dues — November',520), T('youth','2026-11-15','Offering','Youth service offering',310), T('youth','2026-11-15','Fundraising','Youth Camp fundraising',1200),
+  T('choir','2026-11-07','Monthly dues','Choir dues — November',380), T('choir','2026-11-14','Thanksgiving','Choir thanksgiving',200),
+  T('ss','2026-11-15','Offering',"Children's offering",240),
+  T('women','2026-11-06','Monthly dues',"Women's dues — November",610), T('women','2026-11-06','Welfare dues',"Women's welfare",300),
+];
+SUN_ISO.forEach((d,s)=>{ if(d.startsWith('2026-11')) txs.push(T('station',d,'Day Born','Day Born offering (8 groups)',sunTotal(s))); });
+
+let budgets = [
+  {u:'station', name:'Minister support', budget:31200, spent:26400},
+  {u:'station', name:'Utilities (electricity, gas, charcoal)', budget:11000, spent:9050},
+  {u:'station', name:'Chapel building project', budget:150000, spent:61500},
+  {u:'station', name:'Welfare', budget:8000, spent:5200},
+  {u:'station', name:'Harvest & anniversary', budget:3000, spent:400},
+  {u:'youth', name:'Youth Camp 2026', budget:6000, spent:1500},
+  {u:'youth', name:'Outreach', budget:2000, spent:1150},
+  {u:'choir', name:'Instruments', budget:8000, spent:3600},
+  {u:'choir', name:'Choir robes', budget:3000, spent:0},
+  {u:'ss', name:'Teaching materials', budget:1500, spent:940},
+  {u:'women', name:'Welfare support', budget:4000, spent:4350},
+];
+let targets = [ // income targets for the year
+  {u:'station', name:'Tithe', target:80000, got:71400},
+  {u:'station', name:'Offering', target:90000, got:78900},
+  {u:'station', name:'Day Born', target:110000, got:96300},
+  {u:'youth', name:'Monthly dues', target:6000, got:5300},
+  {u:'choir', name:'Monthly dues', target:4500, got:4100},
+  {u:'ss', name:'Offering', target:3000, got:2350},
+  {u:'women', name:'Monthly dues', target:7000, got:6450},
+];
+let payees = [
+  {id:'p1', u:'station', kind:'person', name:'Station Minister', sub:'Rev. Minister (example)', lines:[
+    {n:'Weekly support', f:'Every week', a:600, b:'Minister support'},{n:'One-third of tithe', f:'Monthly', a:2067, b:'Minister support'},
+    {n:'Electricity', f:'Monthly', a:450, b:'Utilities (electricity, gas, charcoal)'},{n:'Gas', f:'Monthly', a:320, b:'Utilities (electricity, gas, charcoal)'},
+    {n:'Charcoal', f:'Monthly', a:150, b:'Utilities (electricity, gas, charcoal)'}]},
+  {id:'p2', u:'station', kind:'person', name:'Bereaved member', sub:'Welfare case (example)', lines:[{n:'Funeral support',f:'One-off',a:1000,b:'Welfare'}]},
+  {id:'p3', u:'station', kind:'project', name:'Chapel Building Project', sub:'Budget 150,000', lines:[
+    {n:'Cement & blocks',f:'As needed',a:3500,b:'Chapel building project'},{n:'Labour',f:'Weekly',a:2000,b:'Chapel building project'},{n:'Roofing sheets',f:'As needed',a:8000,b:'Chapel building project'}]},
+  {id:'p4', u:'choir', kind:'project', name:'Instrument Project', sub:'Keyboard, drums, speakers', lines:[{n:'Keyboard repair',f:'One-off',a:600,b:'Instruments'},{n:'New drum set',f:'One-off',a:3000,b:'Instruments'}]},
+  {id:'p5', u:'youth', kind:'project', name:'Youth Camp 2026', sub:'December camp', lines:[{n:'Venue',f:'One-off',a:1500,b:'Youth Camp 2026'},{n:'Feeding',f:'One-off',a:2500,b:'Youth Camp 2026'}]},
+];
+let eid = 0;
+const E = (u,d,payee,to,line,amt,st,fund,budget,note) => ({id:'e'+(++eid),u,d,payee,to,line,amt,st,fund,budget,note:note||'',rcpt:'EXP-2026-'+String(300+eid).padStart(4,'0')});
+let expenses = [
+  E('station','2026-11-01','p1','Station Minister','Weekly support',600,'confirmed','General fund','Minister support'),
+  E('station','2026-11-05','p1','Station Minister','Electricity',450,'confirmed','General fund','Utilities (electricity, gas, charcoal)','Prepaid electricity top-up'),
+  E('station','2026-11-05','p1','Station Minister','Gas',320,'confirmed','General fund','Utilities (electricity, gas, charcoal)','14.5 kg cylinder refill'),
+  E('station','2026-11-08','p1','Station Minister','Weekly support',600,'confirmed','General fund','Minister support'),
+  E('station','2026-11-08',null,'Harvest decorations (vendor)','Harvest decorations',400,'confirmed','Day Born fund','Harvest & anniversary','Paid from Day Born offering'),
+  E('station','2026-11-12','p2','Bereaved member','Funeral support',1000,'confirmed','Welfare fund','Welfare'),
+  E('station','2026-11-14','p3','Chapel Building Project','Cement & blocks',3500,'approved','Building fund','Chapel building project','60 bags cement, 400 blocks'),
+  E('station','2026-11-15','p1','Station Minister','Weekly support',600,'approved','General fund','Minister support'),
+  E('station','2026-11-15',null,'Day Born anniversary refreshments','Refreshments',350,'approved','Day Born fund','Harvest & anniversary','Paid from Day Born offering'),
+  E('station','2026-11-18','p1','Station Minister','Charcoal',150,'pending','General fund','Utilities (electricity, gas, charcoal)'),
+  E('station','2026-11-19','p3','Chapel Building Project','Labour',2000,'pending','Building fund','Chapel building project','Masons, week 46'),
+  E('youth','2026-11-11','p5','Youth Camp 2026','Venue',1500,'confirmed','Youth fund','Youth Camp 2026','Deposit'),
+  E('youth','2026-11-18',null,'Outreach transport','Transport',250,'confirmed','Youth fund','Outreach'),
+  E('choir','2026-11-13','p4','Instrument Project','Keyboard repair',600,'confirmed','Choir fund','Instruments'),
+  E('choir','2026-11-20','p4','Instrument Project','New drum set',3000,'pending','Choir fund','Instruments'),
+  E('ss','2026-11-10',null,'Teaching materials','Books & crayons',180,'confirmed','Sunday School fund','Teaching materials'),
+  E('women','2026-11-12',null,'Member in hospital','Welfare support',400,'confirmed',"Women's fund",'Welfare support'),
+];
+const FEMALE = ['Akosua','Adwoa','Abena','Akua','Yaa','Afua','Amma'];
+const PEOPLE = [
+  ['Kwame Asante','Saturday',['station','choir'],220],['Akosua Mensah','Sunday',['station','women'],180],['Yaw Boateng','Thursday',['station','youth'],90],
+  ['Abena Owusu','Tuesday',['station','youth','choir'],120],['Kofi Adjei','Friday',['station'],300],['Adwoa Darko','Monday',['station','women'],150],
+  ['Kwaku Frimpong','Wednesday',['station','youth'],60],['Yaa Ofori','Thursday',['station','ss'],140],['Afua Nyarko','Friday',['station','women','choir'],110],
+  ['Kwabena Ampofo','Tuesday',['station'],250],['Amma Serwaa','Saturday',['station','youth'],70],['Kwasi Appiah','Sunday',['station'],200]];
+let members = PEOPLE.map(([name,day,us,base],i)=>({
+  id:'m'+i, name, day, units:us, phone:'024 ••• '+(4100+i*37),
+  tithe: MONTHS.map((_,m)=> m>NOW_M ? null : ((m+i)%5===3 || (m===NOW_M && i%4===1) ? 0 : base)),
+  dues: MONTHS.map((_,m)=> m>NOW_M ? null : ((m+i)%7===2 ? 0 : 20)),
+  welfare: 60+i*5, funeral: 40+(i%3)*20, thanks: (i%4)*150 }));
+let campaigns = [
+  {id:'c1', u:'station', name:'Harvest 2026', target:40000, ends:'29 Nov 2026', extra:3400, pledges:[[0,3000,2000],[1,1500,1500],[4,5000,2500],[5,1000,400],[9,4000,4000],[11,2500,1000],[7,1200,600]]},
+  {id:'c2', u:'station', name:'Chapel Building Fund', target:150000, ends:'Dec 2027', extra:41000, pledges:[[4,20000,12000],[9,15000,9000],[0,10000,6500],[11,8000,3500]]},
+  {id:'c3', u:'youth', name:'Youth Camp 2026', target:6000, ends:'12 Dec 2026', extra:900, pledges:[[2,300,300],[3,500,200],[6,300,100],[10,400,400]]},
+].map(c=>({...c, pledges:c.pledges.map(([mi,p,paid])=>({m:'m'+mi,p,paid}))}));
+let logs = [
+  ['Today 09:12','Financial Secretary','Recorded Tithe 300 — Kofi Adjei'],
+  ['Yesterday 18:40','You','Approved expense: Instrument Project — Keyboard repair'],
+  ['Yesterday 18:31','Financial Secretary','Recorded expense: Chapel Building Project — Labour 2,000'],
+  ['19 Nov 20:05','Youth treasurer','Recorded Youth dues — November 520'],
+  ['15 Nov 13:20','Financial Secretary','Saved Day Born count for 15 Nov (8 groups)'],
+  ['15 Nov 13:02','You','Changed budget: Welfare from 7,000 to 8,000'],
+];
+const dayName = m => { const D = DAYS.find(x=>x.d===m.day); if(!D) return ''; return FEMALE.includes(m.name.split(' ')[0]) ? D.f : D.m; };
+const SNAP = JSON.stringify({units,txs,budgets,targets,payees,expenses,members,campaigns,logs});
+
+/* Organization example: rename the same sample records into neutral organization terms */
+const ORG_WORDS = [['Choir thanksgiving','Events income'],['Station Minister','Office Manager'],['Rev. Minister (example)','Staff (example)'],['Weekly support','Weekly allowance'],['One-third of tithe','Salary top-up'],
+  ['Minister support','Staff allowances'],['Chapel Building Project','Office Building Project'],['Chapel Building Fund','Building Fund'],['Chapel building project','Office building project'],['Instrument Project','Equipment Project'],
+  ['Instruments','Equipment'],['Keyboard repair','Projector repair'],['New drum set','New sound system'],['Choir robes','Branded T-shirts'],['Harvest & anniversary','AGM & events'],['Harvest decorations','AGM decorations'],
+  ['Harvest 2026','Annual Fundraiser 2026'],['Day Born anniversary refreshments','AGM refreshments'],['Day Born fund','General fund'],['Paid from Day Born offering','For the annual meeting'],
+  ['Sunday offering','Donations'],['Youth service offering','Youth Wing donations'],["Children's offering",'Education donations'],['Tithe','Monthly contributions'],['Thanksgiving','Special donations'],['Offering','Donations'],
+  ['Main Church','Head Office'],['Youth Fellowship','Youth Wing'],['Church Choir','Events Committee'],['Sunday School','Education Committee'],["Women's Fellowship",'Welfare Committee'],['Youth Camp 2026','Youth Retreat 2026'],
+  ['Youth Camp','Youth Retreat'],['Choir','Events'],["Women's",'Welfare'],['Teaching materials','Training materials'],['Books & crayons','Training handouts'],['camp','retreat']];
+function orgify(o){ if(typeof o==='string'){ let s=o; ORG_WORDS.forEach(([a,b])=>{ s=s.split(a).join(b); }); return s; } if(Array.isArray(o)) return o.map(orgify); if(o&&typeof o==='object'){ const r={}; for(const k in o) r[k]= (k==='id'||k==='u'||k==='payee'||k==='m'||k==='st'||k==='kind'||k==='d') ? o[k] : orgify(o[k]); return r; } return o; }
+function loadData(type){
+  const o=JSON.parse(SNAP); const d = type==='org' ? orgify(o) : o;
+  ({units,txs,budgets,targets,payees,expenses,members,campaigns,logs}=d);
+  if(type==='org'){ txs=txs.filter(x=>x.cat!=='Day Born'); targets=targets.filter(x=>x.name!=='Day Born'); }
+  higher=[];
+}
+
+/* ===== State ===== */
+const S = {setup:true, type:'church', orgName:'', cur:'GHS', feat:{dayborn:true,pledges:true,sms:true,selfview:false},
+  role:'me', view:'all', tab:'home', member:null, payee:null, group:null, camp:null, q:'', showAll:false, showOwing:false, spendKind:'all', editB:null,
+  sunday:DAYS.map(()=>''), sheet:null, forcePhone:false, showHigher:false};
+const ROLES = () => ({
+  me:{label:'You', who:`${C().admin} — sees everything`, units:'all', approve:true},
+  finsec:{label:C().fin, who:'Records & approves for all units', units:'all', approve:true},
+  youth:{label:`${uName('youth').split(' ')[0]} treasurer`, who:`Sees only ${uName('youth')}`, units:['youth'], approve:false},
+});
+const role = () => ROLES()[S.role];
+const visibleIds = () => role().units==='all' ? units.map(u=>u.id) : role().units;
+const scope = () => S.view==='all' ? visibleIds() : [S.view];
+const uName = id => (units.find(u=>u.id===id)||{}).name || id;
+const kindName = u => u.kind==='top' ? C().topKind : C().sub;
+const inScope = u => scope().includes(u);
+const canDayBorn = () => S.type==='church' && S.feat.dayborn && scope().includes('station');
+const scopeLabel = () => S.view==='all' ? (visibleIds().length>1 ? C().all : uName(visibleIds()[0])) : uName(S.view);
+const isDesk = () => window.innerWidth>=900 && !S.forcePhone;
+const dShort = iso => `${+iso.slice(8)} ${MONTHS[+iso.slice(5,7)-1]}`;
+const spentNow = x => x.st!=='pending';
+const log = what => logs.unshift(['Today '+new Date().toTimeString().slice(0,5), role().label, what]);
+const balanceOf = ids => units.filter(u=>ids.includes(u.id)).reduce((s,u)=>s+u.open,0) + txs.filter(x=>ids.includes(x.u)).reduce((s,x)=>s+x.amt,0) - expenses.filter(x=>ids.includes(x.u)&&spentNow(x)).reduce((s,x)=>s+x.amt,0);
+
+/* ===== Charts ===== */
+function niceMax(m){ const p=Math.pow(10,Math.floor(Math.log10(Math.max(m,1)))); for(const f of [1,1.2,1.5,2,2.5,3,4,5,6,8,10]) if(f*p>=m) return f*p; return 10*p; }
+function barChart(labels, values, aria){
+  const w=isDesk()?640:360, h=200, pl=40, pr=10, pt=22, pb=26, iw=w-pl-pr, ih=h-pt-pb;
+  const max=niceMax(Math.max(...values,1)), n=values.length, step=iw/n, bw=Math.max(6,Math.min(34,step*.62)), r=4, y=v=>pt+ih-(v/max)*ih;
+  let s=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(aria)}">`;
+  [0,.5,1].forEach(f=>{ const yy=pt+ih-f*ih; s+=`<line class="cg" x1="${pl}" x2="${w-pr}" y1="${yy}" y2="${yy}"/><text class="ct" x="${pl-6}" y="${yy+4}" text-anchor="end">${short(max*f)}</text>`; });
+  const every=Math.ceil(n/(isDesk()?12:6));
+  values.forEach((v,i)=>{ const x=pl+i*step+(step-bw)/2, top=y(v), base=pt+ih, rr=Math.min(r,base-top);
+    if(v>0) s+=`<path class="cb ${i===n-1?'last':''}" d="M${x},${base}V${top+rr}Q${x},${top} ${x+rr},${top}H${x+bw-rr}Q${x+bw},${top} ${x+bw},${top+rr}V${base}Z"/>`;
+    s+=`<rect class="hit" x="${pl+i*step}" y="${pt}" width="${step}" height="${ih}" data-tip="${esc(labels[i])} · ${fmt(v)}"/>`;
+    if((n-1-i)%every===0) s+=`<text class="ct" x="${x+bw/2}" y="${h-8}" text-anchor="middle">${esc(labels[i])}</text>`; });
+  const lx=pl+(n-1)*step+step/2; s+=`<text class="ctv" x="${Math.min(lx,w-pr-14)}" y="${y(values[n-1])-7}" text-anchor="middle">${short(values[n-1])}</text>`;
+  return `<div class="chart">${s}</svg></div>`;
+}
+// Two lines: actual (solid, brand) vs plan (dashed, neutral reference)
+function lineChart(labels, actual, plan, aria, names){
+  const w=isDesk()?640:360, h=220, pl=42, pr=14, pt=16, pb=26, iw=w-pl-pr, ih=h-pt-pb, n=labels.length;
+  const max=niceMax(Math.max(...actual.filter(v=>v!=null),...plan)), X=i=>pl+i*(iw/(n-1)), Y=v=>pt+ih-(v/max)*ih;
+  let s=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(aria)}">`;
+  [0,.25,.5,.75,1].forEach(f=>{ const yy=pt+ih-f*ih; s+=`<line class="cg" x1="${pl}" x2="${w-pr}" y1="${yy}" y2="${yy}"/>${f%.5===0?`<text class="ct" x="${pl-6}" y="${yy+4}" text-anchor="end">${short(max*f)}</text>`:''}`; });
+  const pts=actual.map((v,i)=>v==null?null:[X(i),Y(v)]).filter(Boolean), last=pts[pts.length-1];
+  s+=`<path class="ar" d="M${pts[0][0]},${pt+ih}L${pts.map(p=>p.join(',')).join('L')}L${last[0]},${pt+ih}Z"/>`;
+  s+=`<path class="ln b" d="M${plan.map((v,i)=>X(i)+','+Y(v)).join('L')}"/>`;
+  s+=`<path class="ln a" d="M${pts.map(p=>p.join(',')).join('L')}"/>`;
+  s+=`<circle class="dot" cx="${last[0]}" cy="${last[1]}" r="4.5"/>`;
+  const every=isDesk()?1:2;
+  labels.forEach((l,i)=>{ if(i%every===0||i===n-1) s+=`<text class="ct" x="${X(i)}" y="${h-8}" text-anchor="middle">${l}</text>`;
+    const tipTxt = `${l} · ${names[0]} ${actual[i]==null?'—':fmt(actual[i])} · ${names[1]} ${fmt(plan[i])}`;
+    s+=`<rect class="hit" x="${X(i)-iw/(n-1)/2}" y="${pt}" width="${iw/(n-1)}" height="${ih}" data-tip="${esc(tipTxt)}"/>`; });
+  s+=`<text class="ctv" x="${last[0]}" y="${last[1]-10}" text-anchor="middle">${short(actual[pts.length-1])}</text>`;
+  return `<div class="legend"><span><i class="sw"></i>${names[0]}</span><span><i class="sw b"></i>${names[1]}</span></div><div class="chart">${s}</svg></div>`;
+}
+const WEIGHTS=[7,8,9,8,10,9,11,9,10,9,10]; // Jan–Nov spending pattern (example)
+function monthlySpend(total){ const sw=WEIGHTS.reduce((a,b)=>a+b,0); let c=0; return WEIGHTS.map(w=>(c+=total*w/sw)); }
+
+/* ===== Setup ===== */
+function setupView(){
+  const ch=S.type==='church';
+  return `<div class="setup">
+    <div class="brand logo"><i>₵</i><span>SikaBook</span></div>
+    <div><h1>Set up your finance book</h1><p class="muted" style="font-size:15px;margin:.4em 0 0">This takes a minute. You can change all of it later in Settings.</p></div>
+    <div class="card"><span class="stepn">Step 1 · What are you setting up?</span>
+      <div class="choice">
+        <button data-act="stype" data-id="church" aria-pressed="${ch}"><i>⛪</i><b>Church</b><small>Station, societies, offering, tithe, thanksgiving, Day Born, welfare and funeral dues.</small></button>
+        <button data-act="stype" data-id="org" aria-pressed="${!ch}"><i>🏢</i><b>Organization</b><small>Association, NGO, school, club or business. Head office, departments, dues, donations and projects.</small></button>
+      </div></div>
+    <div class="card"><span class="stepn">Step 2 · Name and currency</span>
+      <label class="f">${ch?'Church name':'Organization name'}<input type="text" id="oname" placeholder="${ch?'e.g. Wesley Methodist Church, Station':'e.g. Accra Traders Association'}" value="${esc(S.orgName)}"></label>
+      <label class="f">Currency<select id="ocur">${CURRENCIES.map(([c,s,n])=>`<option value="${c}" ${S.cur===c?'selected':''}>${s} · ${n} (${c})</option>`).join('')}</select></label>
+      <span class="muted">Amounts are kept in the currency you choose. People outside Ghana can pick their own.</span></div>
+    <div class="card"><span class="stepn">Step 3 · Features</span>
+      ${ch?`<label class="toggle"><span>Day Born offering<small>8 day groups every Sunday, with totals and charts</small></span><input type="checkbox" id="fdb" ${S.feat.dayborn?'checked':''}></label>`:''}
+      <label class="toggle"><span>Pledges & fundraising<small>Targets, pledges and who has paid</small></span><input type="checkbox" id="fpl" ${S.feat.pledges?'checked':''}></label>
+      <label class="toggle"><span>SMS receipts & reminders<small>Members get a text when they pay</small></span><input type="checkbox" id="fsms" ${S.feat.sms?'checked':''}></label></div>
+    <button class="btn full" data-act="finishsetup" style="padding:14px">Open my dashboard</button>
+    <span class="muted" style="text-align:center">The dashboard opens with example records so you can try everything.</span>
+  </div>`;
+}
+
+/* ===== Views ===== */
+function home(){
+  const sc=scope(), t=txs.filter(x=>inScope(x.u)), ex=expenses.filter(x=>inScope(x.u)&&spentNow(x));
+  const bal=balanceOf(sc);
+  const inc=t.filter(x=>x.d.startsWith('2026-11')).reduce((s,x)=>s+x.amt,0), out=ex.filter(x=>x.d.startsWith('2026-11')).reduce((s,x)=>s+x.amt,0);
+  const cats={}; t.filter(x=>x.d.startsWith('2026-11')).forEach(x=>cats[x.cat]=(cats[x.cat]||0)+x.amt);
+  const catArr=Object.entries(cats).sort((a,b)=>b[1]-a[1]), maxC=catArr.length?catArr[0][1]:1;
+  const pend=expenses.filter(x=>inScope(x.u)&&x.st!=='confirmed');
+  const bl=budgets.filter(b=>inScope(b.u)), bT=bl.reduce((s,b)=>s+b.budget,0), bS=bl.reduce((s,b)=>s+b.spent,0), over=bl.filter(b=>b.spent>b.budget);
+  const owing=members.filter(m=>m.units.some(inScope)&&(inScope('station')?m.tithe[NOW_M]===0:m.dues[NOW_M]===0)).length;
+  const recent=[...t.map(x=>({...x,kind:'in'})), ...expenses.filter(x=>inScope(x.u)).map(x=>({u:x.u,d:x.d,desc:`${x.to} — ${x.line}`,amt:x.amt,kind:'out',id:x.id}))].sort((a,b)=>b.d.localeCompare(a.d)).slice(0,isDesk()?8:6);
+  const unitRows = S.view==='all'&&visibleIds().length>1 ? units.filter(u=>visibleIds().includes(u.id)).map(u=>`<button class="item" data-act="view" data-id="${u.id}"><span class="av">${esc(u.name[0])}</span><span class="t"><b>${esc(u.name)}</b><small>${kindName(u)}</small></span><span class="amt num">${fmt(balanceOf([u.id]))}</span><span class="chev">›</span></button>`).join('') : '';
+  const accts=[['Cash box','🪙',.14],['Bank account','🏦',.71],['Mobile Money','📱',.15]];
+  return `<div class="grid2"><div class="col">
+    <section class="hero" aria-label="Summary">
+      <div><div class="lab">${esc(scopeLabel())} · Balance</div><div class="big num">${fmt(bal)}</div></div>
+      <div class="row"><div class="pill"><span>Money in · Nov</span><b class="num">${fmt(inc)}</b></div><div class="pill"><span>Money out · Nov</span><b class="num">${fmt(out)}</b></div></div>
+    </section>
+    <div class="quick">
+      <button data-act="sheet" data-t="income"><i>＋</i>Record income</button>
+      <button data-act="sheet" data-t="expnew"><i>−</i>Record expense</button>
+      ${canDayBorn()?`<button data-act="sheet" data-t="dayentry"><i>☀</i>Day Born count</button>`:`<button data-act="tab" data-id="reports"><i>▤</i>Reports</button>`}
+    </div>
+    ${pend.length?`<button class="alert" data-act="tab" data-id="spend"><span>⏳</span><span><b>${pend.length} expenses</b> are waiting for approval or for the recipient to confirm.</span></button>`:''}
+    ${over.length?`<button class="alert" data-act="tab" data-id="budget" style="background:var(--bad-soft)"><span>⚠</span><span><b style="color:var(--bad)">${over.length} budget line${over.length>1?'s are':' is'} over budget:</b> ${over.map(b=>esc(b.name)).join(', ')}</span></button>`:''}
+    ${canDayBorn()?`<div class="card"><div class="cardhead"><h3>Day Born · each Sunday</h3><button class="link" data-act="tab" data-id="dayborn">Open Day Born ›</button></div>${barChart(SUNDAYS,SUNDAYS.map((_,i)=>sunTotal(i)),'Day Born total each Sunday')}</div>`:''}
+    <div class="card"><h3>Where the money came from · Nov</h3><div class="bars">${catArr.map(([c,v])=>`<div class="bar"><span>${esc(c)}</span><b class="num">${fmt(v)}</b><div class="track"><div class="fill ${c==='Day Born'?'gold':''}" style="width:${(v/maxC*100).toFixed(1)}%"></div></div></div>`).join('')||'<span class="muted">No income yet this month.</span>'}</div></div>
+  </div><div class="col">
+    <div class="card"><div class="cardhead"><h3>Where the money is</h3><span class="muted">Matches the balance</span></div><div class="list">
+      ${accts.map(([n,i,p])=>`<div class="item"><span class="av">${i}</span><span class="t"><b>${n}</b></span><span class="amt num">${fmt(bal*p)}</span></div>`).join('')}</div></div>
+    ${unitRows?`<div class="card"><div class="cardhead"><h3>Units</h3><span class="muted">Tap to open</span></div><div class="list">${unitRows}</div></div>`:''}
+    <div class="card"><div class="cardhead"><h3>2026 budget</h3><button class="link" data-act="tab" data-id="budget">Open budget ›</button></div>
+      <div class="bar"><span>${fmt(bS)} spent of ${fmt(bT)}</span><b class="num">${bT?Math.round(bS/bT*100):0}%</b><div class="track"><div class="fill" style="width:${bT?Math.min(100,bS/bT*100):0}%"></div><div class="pace" style="left:${(NOW_M+1)/12*100}%"></div></div></div>
+      <span class="muted">The dark mark shows where spending should be by the end of November.</span></div>
+    ${owing?`<button class="alert" data-act="tab" data-id="members" style="background:var(--surface-2)"><span>📋</span><span><b style="color:var(--ink)">${owing} members</b> have not paid ${inScope('station')?esc(C().tithe.toLowerCase()):'dues'} for November.</span></button>`:''}
+    <div class="card"><h3>Latest entries</h3><div class="list">
+      ${recent.map(x=>x.kind==='out'
+        ?`<button class="item" data-act="sheet" data-t="expense" data-id="${x.id}"><span class="t"><b>${esc(x.desc)}</b><small>${esc(uName(x.u))} · ${dShort(x.d)} · expense</small></span><span class="amt num out">−${short(x.amt)}</span><span class="chev">›</span></button>`
+        :`<div class="item"><span class="t"><b>${esc(x.desc)}</b><small>${esc(uName(x.u))} · ${dShort(x.d)}</small></span><span class="amt num in">+${short(x.amt)}</span></div>`).join('')}</div></div>
+  </div></div>`;
+}
+
+function membersView(){
+  if(S.member) return memberProfile(members.find(m=>m.id===S.member));
+  const vis=members.filter(m=>m.units.some(inScope)), st=inScope('station');
+  const owing=vis.filter(m=>st?m.tithe[NOW_M]===0:m.dues[NOW_M]===0);
+  const groups=units.filter(u=>scope().includes(u.id)).map(u=>`<span class="chip">${esc(u.name)} · ${members.filter(m=>m.units.includes(u.id)).length}</span>`).join('');
+  return `<div class="pagehead"><h2>Members</h2><span class="muted">${vis.length} members in ${esc(scopeLabel())}. Search for a name, or show the full list.</span></div>
+  <div class="stack"><div class="grid2"><div class="col">
+    <input type="text" id="msearch" placeholder="Search a name, e.g. Kwame" value="${esc(S.q)}" autocomplete="off">
+    <div class="chips">${groups}</div>
+    <div class="card" id="mlist">${memberList(vis)}</div>
+    <button class="btn ghost full" data-act="sheet" data-t="simple" data-k="member">＋ Add a member</button>
+  </div><div class="col">
+    <div class="card"><div class="cardhead"><h3>Not paid for November</h3><span class="chip ${owing.length?'warn':'good'}">${owing.length} ${st?esc(C().tithe.toLowerCase()):'dues'}</span></div>
+      ${S.showOwing?`<div class="list">${owing.map(m=>`<div class="item"><span class="t"><b>${esc(m.name)}</b><small>${m.phone}</small></span>${S.feat.sms?`<button class="btn small ghost" data-act="remind" data-id="${m.id}">Send reminder</button>`:''}</div>`).join('')||'<span class="muted">Everyone has paid.</span>'}</div>`
+        :`<span class="muted">Names stay hidden until you open the list.</span><button class="btn small ghost" style="align-self:flex-start" data-act="owing">Show names</button>`}
+      ${S.feat.sms&&owing.length?`<button class="btn small" style="align-self:flex-start" data-act="remindall">Send reminder to all ${owing.length}</button>`:''}</div>
+    <div class="note">Reminders are polite SMS messages that only go to members who agreed to receive texts.</div>
+  </div></div></div>`;
+}
+function memberList(vis){
+  const q=S.q.trim().toLowerCase();
+  if(!q&&!S.showAll) return `<div class="lock"><i>🔒</i><b>The member list stays hidden until you ask for it</b><span class="muted">so it isn't on screen when you open the app.</span><button class="btn small" data-act="showall">Show all ${vis.length} members</button></div>`;
+  const list=vis.filter(m=>m.name.toLowerCase().includes(q));
+  if(!list.length) return `<span class="muted">No member called “${esc(S.q)}”.</span>`;
+  return `<div class="list">${list.map(m=>`<button class="item" data-act="member" data-id="${m.id}"><span class="av">${m.name.split(' ').map(w=>w[0]).join('')}</span><span class="t"><b>${esc(m.name)}</b><small>${S.type==='church'&&dayName(m)?esc(dayName(m))+' · ':''}${m.units.filter(inScope).map(uName).join(', ')}</small></span><span class="chev">›</span></button>`).join('')}</div>`;
+}
+function memberProfile(m){
+  const st=inScope('station'), sum=a=>a.reduce((s,x)=>s+(x||0),0), ch=S.type==='church';
+  const mo=arr=>`<div class="months">${arr.map((v,i)=>`<div class="mo ${v===null?'future':v?'paid':'miss'}">${MONTHS[i]}<b>${v===null?'—':v?v:'Owing'}</b></div>`).join('')}</div>`;
+  const owing=m.tithe.filter(v=>v===0).length;
+  const pl=campaigns.flatMap(c=>c.pledges.filter(p=>p.m===m.id).map(p=>({...p,c}))).filter(x=>inScope(x.c.u));
+  return `<button class="back" data-act="member" data-id="">‹ Members</button>
+  <div class="pagehead" style="margin-top:8px"><h2 style="display:block">${esc(m.name)}</h2><div class="chips">${ch&&dayName(m)?`<span class="chip gold">${esc(dayName(m))} · ${m.day}-born</span>`:''}${m.units.filter(inScope).map(u=>`<span class="chip">${esc(uName(u))}</span>`).join('')}</div><span class="muted num">${m.phone}</span></div>
+  <div class="stack"><div class="grid2"><div class="col">
+    <div class="card"><h3>2026 so far</h3><div class="mini">
+      ${st?`<div><span>${esc(C().tithe)}</span><b>${fmt(sum(m.tithe))}</b></div><div><span>${esc(C().thanks)}</span><b>${fmt(m.thanks)}</b></div><div><span>Welfare dues</span><b>${fmt(m.welfare)}</b></div>${ch?`<div><span>Funeral dues</span><b>${fmt(m.funeral)}</b></div>`:''}`:''}
+      <div><span>${esc(C().sub)} dues</span><b>${fmt(sum(m.dues))}</b></div></div></div>
+    ${S.feat.pledges&&pl.length?`<div class="card"><h3>Pledges</h3><div class="bars">${pl.map(x=>`<div class="bar"><span>${esc(x.c.name)}</span><b class="num">${fmt(x.paid)} of ${fmt(x.p)}</b><div class="track"><div class="fill" style="width:${Math.min(100,x.paid/x.p*100)}%"></div></div></div>`).join('')}</div></div>`:''}
+    <div class="btnrow"><button class="btn" data-act="sheet" data-t="income" data-member="${m.id}">＋ Record a payment</button><button class="btn ghost" data-act="statement" data-id="${m.id}">Send statement</button></div>
+  </div><div class="col">
+    ${st?`<div class="card"><div class="cardhead"><h3>Monthly ${esc(C().tithe.toLowerCase())}</h3>${owing?`<span class="chip bad">${owing} month${owing>1?'s':''} owing</span>`:`<span class="chip good">Up to date</span>`}</div>${mo(m.tithe)}</div>`
+        :`<div class="note">${esc(C().tithe)}, welfare and other ${esc(C().top)} records are hidden for the ${esc(role().label)}.</div>`}
+    <div class="card"><h3>Monthly dues</h3>${mo(m.dues)}</div>
+  </div></div></div>`;
+}
+
+function dayBornView(){
+  if(!canDayBorn()) return `<div class="card lock"><i>🔒</i><b>Day Born belongs to the Main Church</b><span class="muted">Society treasurers don't see it.</span></div>`;
+  if(S.group!==null) return dayGroupView(S.group);
+  const n=SUNDAYS.length, totals=SUNDAYS.map((_,i)=>sunTotal(i)), year=totals.reduce((a,b)=>a+b,0);
+  const dbEx=expenses.filter(x=>x.fund==='Day Born fund'), spent=dbEx.filter(spentNow).reduce((s,x)=>s+x.amt,0);
+  const ranked=DAYS.map((g,i)=>({g,i,t:groupTotal(i)})).sort((a,b)=>b.t-a.t);
+  return `<div class="pagehead row"><div><h2>Day Born</h2><span class="muted">Main Church · ${n} Sundays recorded since 6 Sep 2026</span></div><button class="btn" data-act="sheet" data-t="dayentry">＋ Record Sunday 22 Nov</button></div>
+  <div class="stack">
+    <div class="tiles">
+      <div class="tile"><span>Total so far</span><b>${fmt(year)}</b></div>
+      <div class="tile"><span>Last Sunday · ${SUNDAYS[n-1]}</span><b>${fmt(totals[n-1])}</b></div>
+      <div class="tile"><span>Average per Sunday</span><b>${fmt(year/n)}</b></div>
+      <div class="tile"><span>Day Born fund balance</span><b>${fmt(year-spent)}</b></div>
+    </div>
+    <div class="grid2"><div class="col">
+      <div class="card"><div class="cardhead"><h3>Total each Sunday</h3><span class="muted">Tap or hover a bar</span></div>${barChart(SUNDAYS,totals,'Day Born total each Sunday')}</div>
+    </div><div class="col">
+      <div class="card"><div class="cardhead"><h3>Groups ranked</h3><span class="muted">All Sundays</span></div><div class="bars">
+        ${ranked.map(r=>`<div class="bar"><span><button class="link" style="color:var(--ink)" data-act="group" data-i="${r.i}">${r.g.d}${r.g.f?` · ${r.g.m}/${r.g.f}`:''}</button></span><b class="num">${fmt(r.t)}</b><div class="track"><div class="fill gold" style="width:${(r.t/ranked[0].t*100).toFixed(1)}%"></div></div></div>`).join('')}</div></div>
+    </div></div>
+    <div class="card"><div class="cardhead"><h3>Every group, every Sunday</h3><span class="muted">Tap a group for its details${isDesk()?'':' · scroll sideways'}</span></div>
+      <div class="tbl"><table><thead><tr><th>Group</th>${SUNDAYS.map(s=>`<th>${s}</th>`).join('')}<th class="sum">Total</th></tr></thead><tbody>
+        ${DAYS.map((g,gi)=>`<tr><td><button data-act="group" data-i="${gi}">${g.d}<small>${g.f?`${g.m} · ${g.f}`:g.m}</small></button></td>${SUNDAYS.map((_,i)=>`<td>${DB[gi][i].toLocaleString('en-US')}</td>`).join('')}<td class="sum"><b>${groupTotal(gi).toLocaleString('en-US')}</b></td></tr>`).join('')}
+        <tr class="total"><td>All groups</td>${totals.map(v=>`<td>${v.toLocaleString('en-US')}</td>`).join('')}<td class="sum">${year.toLocaleString('en-US')}</td></tr>
+      </tbody></table></div><span class="muted">Amounts in ${curSym()}.</span></div>
+    <div class="card"><div class="cardhead"><h3>Expenses paid from Day Born</h3><span class="muted">${fmt(spent)} spent</span></div>
+      <div class="list">${dbEx.map(expRow).join('')}</div>
+      <button class="btn ghost" style="align-self:flex-start" data-act="sheet" data-t="expnew" data-fund="Day Born fund">＋ Record a Day Born expense</button></div>
+  </div>`;
+}
+function dayGroupView(gi){
+  const g=DAYS[gi], vals=DB[gi], tot=groupTotal(gi), n=vals.length, best=Math.max(...vals), bi=vals.indexOf(best), diff=vals[n-1]-(vals[n-2]||0);
+  const mem=members.filter(m=>m.day===g.d);
+  return `<button class="back" data-act="group" data-i="-1">‹ Day Born</button>
+  <div class="pagehead" style="margin-top:8px"><h2 style="display:block">${g.d}${g.f?` · ${g.m} & ${g.f}`:''}</h2><span class="muted">${g.f?`${g.m} (men) and ${g.f} (women), born on ${g.d}`:'Members who do not know their day of birth'}</span></div>
+  <div class="stack">
+    <div class="tiles">
+      <div class="tile"><span>Total so far</span><b>${fmt(tot)}</b></div>
+      <div class="tile"><span>Average per Sunday</span><b>${fmt(tot/n)}</b></div>
+      <div class="tile"><span>Last Sunday</span><b>${fmt(vals[n-1])}</b><span class="chip ${diff>=0?'good':'bad'}" style="align-self:flex-start">${diff>=0?'▲':'▼'} ${fmt(Math.abs(diff))} vs week before</span></div>
+      <div class="tile"><span>Best Sunday</span><b>${fmt(best)}</b><span>${SUNDAYS[bi]}</span></div>
+    </div>
+    <div class="grid2"><div class="col">
+      <div class="card"><h3>${g.d} group · each Sunday</h3>${barChart(SUNDAYS,vals,g.d+' group each Sunday')}</div>
+      ${mem.length?`<div class="card"><h3>Members in this group</h3><div class="list">${mem.map(m=>`<button class="item" data-act="gomember" data-id="${m.id}"><span class="av">${m.name.split(' ').map(w=>w[0]).join('')}</span><span class="t"><b>${esc(m.name)}</b></span><span class="chev">›</span></button>`).join('')}</div></div>`:''}
+    </div><div class="col">
+      <div class="card"><h3>Sunday by Sunday</h3><div class="list">${vals.map((v,i)=>({v,i})).reverse().map(({v,i})=>`<div class="item"><span class="t"><b>Sunday ${SUNDAYS[i]}</b><small>${((v/sunTotal(i))*100).toFixed(1)}% of that Sunday's total</small></span><span class="amt num">${fmt(v)}</span></div>`).join('')}</div></div>
+    </div></div>
+  </div>`;
+}
+
+const ST={pending:['warn','Waiting for approval'],approved:['gold','Waiting for recipient'],confirmed:['good','Recipient confirmed']};
+const expRow=x=>`<button class="item" data-act="sheet" data-t="expense" data-id="${x.id}"><span class="t"><b>${esc(x.to)} — ${esc(x.line)}</b><small>${dShort(x.d)} · ${esc(uName(x.u))} · ${esc(x.fund)}</small></span><span class="right"><span class="amt num">${fmt(x.amt)}</span><span class="chip ${ST[x.st][0]}">${ST[x.st][1]}</span></span><span class="chev">›</span></button>`;
+
+function spendView(){
+  if(S.payee) return payeeView(payees.find(p=>p.id===S.payee));
+  const ex=expenses.filter(x=>inScope(x.u)).sort((a,b)=>b.d.localeCompare(a.d));
+  const nov=ex.filter(x=>spentNow(x)&&x.d.startsWith('2026-11')).reduce((s,x)=>s+x.amt,0), wait=ex.filter(x=>x.st!=='confirmed').length;
+  const tabs=`<div class="seg" role="group" aria-label="Show"><button data-act="skind" data-id="all" aria-pressed="${S.spendKind==='all'}">All expenses</button><button data-act="skind" data-id="person" aria-pressed="${S.spendKind==='person'}">People</button><button data-act="skind" data-id="project" aria-pressed="${S.spendKind==='project'}">Projects</button></div>`;
+  let body;
+  if(S.spendKind==='all') body=`<div class="card"><div class="cardhead"><h3>All expenses</h3><span class="muted">Tap any expense to see its details</span></div><div class="list">${ex.map(expRow).join('')||'<span class="muted">No expenses yet.</span>'}</div></div>`;
+  else { const list=payees.filter(p=>inScope(p.u)&&p.kind===S.spendKind);
+    body=`<div class="card"><div class="list">${list.map(p=>{const pe=expenses.filter(x=>x.payee===p.id), tot=pe.reduce((s,x)=>s+x.amt,0), w=pe.filter(x=>x.st!=='confirmed').length;
+      return `<button class="item" data-act="payee" data-id="${p.id}"><span class="av">${p.kind==='person'?'👤':'🏗'}</span><span class="t"><b>${esc(p.name)}</b><small>${esc(uName(p.u))} · ${esc(p.sub)}</small></span><span class="right"><span class="amt num">${fmt(tot)}</span>${w?`<span class="chip warn">${w} waiting</span>`:`<span class="chip good">All confirmed</span>`}</span><span class="chev">›</span></button>`}).join('')||'<span class="muted">None in this unit yet.</span>'}</div></div>
+      <button class="btn ghost full" data-act="sheet" data-t="simple" data-k="payee">＋ Add a ${S.spendKind==='person'?'person':'project'}</button>`; }
+  return `<div class="pagehead row"><div><h2>Expenses</h2><span class="muted">${esc(scopeLabel())} · ${fmt(nov)} spent in November · ${wait} waiting</span></div><button class="btn" data-act="sheet" data-t="expnew">＋ Record expense</button></div>
+  <div class="stack" style="max-width:880px">${tabs}${body}</div>`;
+}
+function payeeView(p){
+  const pe=expenses.filter(x=>x.payee===p.id).sort((a,b)=>b.d.localeCompare(a.d)), tot=pe.reduce((s,x)=>s+x.amt,0);
+  return `<button class="back" data-act="payee" data-id="">‹ Expenses</button>
+  <div class="pagehead" style="margin-top:8px"><h2 style="display:block">${esc(p.name)}</h2><span class="muted">${esc(uName(p.u))} · ${esc(p.sub)} · ${fmt(tot)} given in 2026</span></div>
+  <div class="stack"><div class="grid2"><div class="col">
+    <div class="card"><div class="cardhead"><h3>Support lines</h3><span class="muted">Tap Pay to record</span></div><div>
+      ${p.lines.map((l,i)=>`<div class="line"><div><b style="font-weight:500">${esc(l.n)}</b><div class="muted">${esc(l.f)} · ${fmt(l.a)}${l.b?` · counts toward “${esc(l.b)}”`:''}</div></div><button class="btn small" data-act="pay" data-id="${p.id}" data-i="${i}">Pay</button></div>`).join('')}</div></div>
+    <div class="note">After a payment is approved, the recipient gets an SMS or WhatsApp link to confirm they received the money. Their confirmation is saved with the payment.</div>
+  </div><div class="col">
+    <div class="card"><div class="cardhead"><h3>Payments</h3><span class="muted">Tap for details</span></div><div class="list">${pe.map(expRow).join('')||'<span class="muted">No payments yet.</span>'}</div></div>
+  </div></div></div>`;
+}
+
+function budgetView(){
+  const bl=budgets.map((b,i)=>({...b,i})).filter(b=>inScope(b.u)), bT=bl.reduce((s,b)=>s+b.budget,0), bS=bl.reduce((s,b)=>s+b.spent,0);
+  const pace=(NOW_M+1)/12, expected=bT*pace, diff=expected-bS;
+  const cum=monthlySpend(bS), planLine=MONTHS.map((_,i)=>bT*(i+1)/12), act=MONTHS.map((_,i)=>i<=NOW_M?cum[i]:null);
+  const tg=targets.filter(t=>inScope(t.u));
+  const projected=bS/pace;
+  return `<div class="pagehead"><h2>Budget 2026</h2><span class="muted">${esc(scopeLabel())}. Every approved expense comes off its budget line automatically.</span></div>
+  <div class="stack">
+    <div class="tiles">
+      <div class="tile"><span>Budgeted for 2026</span><b>${fmt(bT)}</b></div>
+      <div class="tile"><span>Spent so far</span><b>${fmt(bS)}</b><span>${bT?Math.round(bS/bT*100):0}% used · ${Math.round(pace*100)}% of the year gone</span></div>
+      <div class="tile"><span>Remaining</span><b>${fmt(bT-bS)}</b></div>
+      <div class="tile"><span>Compared with plan</span><b style="color:${diff>=0?'var(--good)':'var(--bad)'}">${diff>=0?'Under':'Over'} by ${fmt(Math.abs(diff))}</b><span>If spending continues: ${fmt(projected)} by Dec</span></div>
+    </div>
+    <div class="grid2"><div class="col">
+      <div class="card"><div class="cardhead"><h3>Spending through the year</h3><span class="muted">Tap a month</span></div>
+        ${lineChart(MONTHS,act,planLine,'Total spent compared with the budget plan, month by month',['Spent so far','Budget plan'])}
+        <span class="muted">When the solid line is below the dashed line, you are spending less than planned.</span></div>
+      <div class="card"><div class="cardhead"><h3>Income targets</h3><span class="muted">2026</span></div><div class="bars">
+        ${tg.map(t=>{const p=t.got/t.target*100; return `<div class="bar"><span><b style="font-weight:500">${esc(t.name)}</b>${S.view==='all'&&visibleIds().length>1?` <span class="muted">· ${esc(uName(t.u))}</span>`:''}</span><span class="right"><b class="num">${Math.round(p)}%</b><span class="muted num">${fmt(t.got)} of ${fmt(t.target)}</span></span><div class="track"><div class="fill ${p>=pace*100?'':'gold'}" style="width:${Math.min(100,p)}%"></div><div class="pace" style="left:${pace*100}%"></div></div></div>`}).join('')||'<span class="muted">No targets yet.</span>'}</div>
+        <span class="muted">Green: on track. Gold: behind where it should be by now (the dark mark).</span></div>
+    </div><div class="col">
+      <div class="card"><h3>Budget lines</h3><div class="bars">
+        ${bl.map(b=>{const p=b.budget?b.spent/b.budget*100:0, cls=p>100?'bad':p>=pace*100+5?'warn':'', left=b.budget-b.spent;
+          return `<div class="bar"><span><b style="font-weight:500">${esc(b.name)}</b>${S.view==='all'&&visibleIds().length>1?`<br><span class="muted">${esc(uName(b.u))}</span>`:''}</span>
+          <span class="right"><b class="num">${Math.round(p)}%</b>${p>100?`<span class="chip bad">⚠ Over by ${fmt(-left)}</span>`:cls==='warn'?`<span class="chip warn">Ahead of plan · ${fmt(left)} left</span>`:`<span class="muted num">${fmt(left)} left</span>`}</span>
+          <div class="track"><div class="fill ${cls}" style="width:${Math.min(100,p)}%"></div><div class="pace" style="left:${pace*100}%"></div></div>
+          <span class="muted num" style="grid-column:1/-1;display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">${fmt(b.spent)} of ${fmt(b.budget)}
+            ${S.editB===b.i?`<span style="display:flex;gap:6px"><input type="number" id="bedit" value="${b.budget}" style="width:120px;padding:5px 8px"><button class="btn small" data-act="bsave" data-i="${b.i}">Save</button></span>`:`<button class="link" data-act="bedit" data-i="${b.i}">Change budget</button>`}</span></div>`}).join('')}
+      </div><span class="muted">The dark mark on each bar shows where spending should be by now.</span></div>
+      <div class="card"><h3>Add a budget line</h3><div class="row2"><input type="text" id="bname" placeholder="e.g. Harvest 2027"><input type="number" id="bamt" placeholder="Amount (${curSym()})"></div><button class="btn" style="align-self:flex-start" data-act="badd">Add line</button></div>
+    </div></div>
+  </div>`;
+}
+
+function fundView(){
+  const list=campaigns.filter(c=>inScope(c.u));
+  if(S.camp){ const c=campaigns.find(x=>x.id===S.camp); if(c) return campView(c); }
+  return `<div class="pagehead"><h2>Fundraising</h2><span class="muted">Targets, pledges and how much has been paid.</span></div>
+  <div class="stack" style="max-width:880px">${list.map(c=>{const paid=c.pledges.reduce((s,p)=>s+p.paid,0)+c.extra, pledged=c.pledges.reduce((s,p)=>s+p.p,0)+c.extra;
+    return `<button class="card" style="text-align:left;cursor:pointer" data-act="camp" data-id="${c.id}"><div class="cardhead"><h3>${esc(c.name)}</h3><span class="muted">${esc(uName(c.u))} · ends ${esc(c.ends)}</span></div>
+      <div class="bar"><span><b class="num" style="font-size:18px">${fmt(paid)}</b> <span class="muted">raised of ${fmt(c.target)}</span></span><b class="num">${Math.round(paid/c.target*100)}%</b>
+      <div class="track"><div class="fill soft" style="width:${Math.min(100,pledged/c.target*100)}%"></div><div class="fill" style="width:${Math.min(100,paid/c.target*100)}%"></div></div></div>
+      <span class="muted">${c.pledges.length} pledges · ${fmt(pledged-paid)} promised but not paid yet</span></button>`}).join('')||'<div class="card"><span class="muted">No fundraising in this unit yet.</span></div>'}
+    <button class="btn ghost" style="align-self:flex-start" data-act="sheet" data-t="simple" data-k="camp">＋ Start a fundraising</button></div>`;
+}
+function campView(c){
+  const paid=c.pledges.reduce((s,p)=>s+p.paid,0)+c.extra, pledged=c.pledges.reduce((s,p)=>s+p.p,0)+c.extra;
+  const mName=id=>(members.find(m=>m.id===id)||{name:'—'}).name;
+  return `<button class="back" data-act="camp" data-id="">‹ Fundraising</button>
+  <div class="pagehead" style="margin-top:8px"><h2 style="display:block">${esc(c.name)}</h2><span class="muted">${esc(uName(c.u))} · ends ${esc(c.ends)}</span></div>
+  <div class="stack">
+    <div class="tiles"><div class="tile"><span>Target</span><b>${fmt(c.target)}</b></div><div class="tile"><span>Raised</span><b>${fmt(paid)}</b></div><div class="tile"><span>Promised, not paid</span><b>${fmt(pledged-paid)}</b></div><div class="tile"><span>Still needed</span><b>${fmt(Math.max(0,c.target-paid))}</b></div></div>
+    <div class="card"><div class="legend"><span><i class="sw"></i>Paid</span><span><i class="sw" style="opacity:.3;height:8px"></i>Promised</span></div>
+      <div class="track" style="height:14px"><div class="fill soft" style="width:${Math.min(100,pledged/c.target*100)}%"></div><div class="fill" style="width:${Math.min(100,paid/c.target*100)}%"></div></div></div>
+    <div class="card"><div class="cardhead"><h3>Pledges</h3><span class="muted">${fmt(c.extra)} given without a pledge</span></div>
+      <div class="tbl"><table><thead><tr><th>Member</th><th>Promised</th><th>Paid</th><th>Balance</th><th></th></tr></thead><tbody>
+      ${c.pledges.map((p,i)=>`<tr><td>${esc(mName(p.m))}</td><td>${p.p.toLocaleString('en-US')}</td><td>${p.paid.toLocaleString('en-US')}</td><td class="${p.p-p.paid>0?'neg':'pos'}">${p.p-p.paid>0?(p.p-p.paid).toLocaleString('en-US'):'Paid ✓'}</td><td>${p.p-p.paid>0?`<button class="btn small ghost" data-act="sheet" data-t="pledgepay" data-id="${c.id}" data-i="${i}">Record payment</button>`:''}</td></tr>`).join('')}
+      </tbody></table></div></div>
+  </div>`;
+}
+
+function reportsView(){
+  const sc=scope(), t=txs.filter(x=>inScope(x.u)&&x.d.startsWith('2026-11')), ex=expenses.filter(x=>inScope(x.u)&&spentNow(x)&&x.d.startsWith('2026-11'));
+  const inc=t.reduce((s,x)=>s+x.amt,0), out=ex.reduce((s,x)=>s+x.amt,0), close=balanceOf(sc), open=close-inc+out;
+  const byCat={}; t.forEach(x=>byCat[x.cat]=(byCat[x.cat]||0)+x.amt);
+  const byLine={}; ex.forEach(x=>byLine[x.budget||'Other']=(byLine[x.budget||'Other']||0)+x.amt);
+  const hist=['Jun','Jul','Aug','Sep','Oct'].map((m,i)=>({m,inc:Math.round(inc*[.86,.92,.88,1.04,.97][i]),out:Math.round(out*[.74,1.1,.81,.95,1.02][i])})).concat([{m:'Nov',inc,out}]);
+  return `<div class="pagehead row"><div><h2>Reports</h2><span class="muted">${esc(scopeLabel())} · November 2026</span></div>
+    <div class="btnrow"><button class="btn small ghost" data-act="export" data-id="PDF">PDF</button><button class="btn small ghost" data-act="export" data-id="Excel">Excel</button><button class="btn small" data-act="export" data-id="WhatsApp">Share on WhatsApp</button></div></div>
+  <div class="stack"><div class="grid2"><div class="col">
+    <div class="card"><h3>Monthly statement · November 2026</h3>
+      <dl class="kv"><dt>Opening balance (1 Nov)</dt><dd class="num">${fmt(open)}</dd></dl>
+      <div class="tbl"><table><thead><tr><th>Income</th><th></th></tr></thead><tbody>${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${fmt(v)}</td></tr>`).join('')}<tr class="total"><td>Total income</td><td class="pos">${fmt(inc)}</td></tr></tbody></table></div>
+      <div class="tbl"><table><thead><tr><th>Expenses (by budget line)</th><th></th></tr></thead><tbody>${Object.entries(byLine).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${fmt(v)}</td></tr>`).join('')}<tr class="total"><td>Total expenses</td><td class="neg">${fmt(out)}</td></tr></tbody></table></div>
+      <dl class="kv"><dt>Surplus for the month</dt><dd class="num" style="color:${inc-out>=0?'var(--good)':'var(--bad)'}">${fmt(inc-out)}</dd><dt><b>Closing balance (30 Nov)</b></dt><dd class="num"><b>${fmt(close)}</b></dd></dl>
+    </div>
+  </div><div class="col">
+    <div class="card"><h3>Last 6 months</h3><div class="tbl"><table><thead><tr><th>Month</th><th>Income</th><th>Expenses</th><th>Surplus</th></tr></thead><tbody>
+      ${hist.map(h=>`<tr><td>${h.m}</td><td>${h.inc.toLocaleString('en-US')}</td><td>${h.out.toLocaleString('en-US')}</td><td class="${h.inc-h.out>=0?'pos':'neg'}">${(h.inc-h.out).toLocaleString('en-US')}</td></tr>`).join('')}</tbody></table></div>
+      <span class="muted">Jun–Oct are example figures.</span></div>
+    <div class="card"><h3>Surplus each month</h3>${barChart(hist.map(h=>h.m),hist.map(h=>Math.max(0,h.inc-h.out)),'Surplus each month')}</div>
+    <div class="card"><h3>Other reports</h3><div class="list">
+      ${['Member giving statements (yearly)','Budget vs actual (full year)','Day Born report by quarter','Fundraising & pledges report','Audit trail (every change)'].filter(r=>S.type==='church'||!r.startsWith('Day')).map(r=>`<button class="item" data-act="export" data-id="${esc(r)}"><span class="t"><b>${r}</b></span><span class="chev">›</span></button>`).join('')}</div></div>
+  </div></div></div>`;
+}
+
+function activityView(){
+  return `<div class="pagehead"><h2>Activity</h2><span class="muted">Every change is recorded with who made it and when. Nothing can be deleted, only corrected.</span></div>
+  <div class="stack" style="max-width:760px"><div class="card"><div class="list">${logs.map(([t,w,x])=>`<div class="item"><span class="av">${esc(w[0])}</span><span class="t"><b style="white-space:normal">${esc(x)}</b><small>${esc(w)} · ${esc(t)}</small></span></div>`).join('')}</div></div></div>`;
+}
+
+function structureView(){
+  const subs=units.filter(u=>u.kind==='sub'), admin=role().units==='all';
+  return `<div class="pagehead"><h2>Structure</h2><span class="muted">The ${esc(C().topKind.toLowerCase())} sees every ${esc(C().sub.toLowerCase())}. Each ${esc(C().sub.toLowerCase())} sees only its own money.</span></div>
+  <div class="stack" style="max-width:760px"><div class="card"><div class="tree">
+    ${higher.map((h,i)=>`<div class="node" style="margin-left:${i*10}px"><span><b>${esc(h.name)}</b> <span class="muted">· ${esc(h.level)}</span></span></div>`).join('')}
+    <div class="node on" style="margin-left:${higher.length*10}px"><b>${esc(uName('station'))} (${esc(C().topKind)})</b><span class="chip good">Active</span></div>
+    ${subs.map(u=>`<div class="node" style="margin-left:${higher.length*10+26}px"><span>${esc(u.name)}</span><span class="muted">${esc(C().sub)}</span></div>`).join('')}
+  </div></div>
+  ${admin?`<div class="card"><h3>Add a ${esc(C().sub.toLowerCase())}</h3><input type="text" id="newunit" placeholder="${S.type==='church'?"e.g. Men's Fellowship":'e.g. Kumasi Branch'}"><button class="btn" style="align-self:flex-start" data-act="addunit">Add under ${esc(uName('station'))}</button></div>
+  ${S.showHigher?`<div class="card"><h3>Add a higher level</h3><span class="muted">Only add this when that office joins. It will see the totals of everything under it.</span>
+     <div class="row2"><select id="hlevel">${C().higher.map(l=>`<option>${l}</option>`).join('')}</select><input type="text" id="hname" placeholder="Name"></div>
+     <div class="row2"><button class="btn ghost" data-act="hcancel">Cancel</button><button class="btn" data-act="hadd">Add level</button></div></div>`
+   :`<button class="link" data-act="hshow">Add a higher level (${C().higher.join(', ')}) ›</button>`}`:''}
+  </div>`;
+}
+
+function settingsView(){
+  return `<div class="pagehead"><h2>Settings</h2><span class="muted">${S.type==='church'?'Church':'Organization'} · ${esc(S.orgName||'(no name yet)')}</span></div>
+  <div class="stack" style="max-width:760px">
+    <div class="card"><h3>General</h3>
+      <label class="f">Name<input type="text" id="setname" value="${esc(S.orgName)}"></label>
+      <label class="f">Currency<select id="setcur">${CURRENCIES.map(([c,s,n])=>`<option value="${c}" ${S.cur===c?'selected':''}>${s} · ${n} (${c})</option>`).join('')}</select></label>
+      <button class="btn" style="align-self:flex-start" data-act="savename">Save</button></div>
+    <div class="card"><h3>Features</h3>
+      ${S.type==='church'?`<label class="toggle"><span>Day Born offering<small>8 day groups every Sunday</small></span><input type="checkbox" data-feat="dayborn" ${S.feat.dayborn?'checked':''}></label>`:''}
+      <label class="toggle"><span>Pledges & fundraising</span><input type="checkbox" data-feat="pledges" ${S.feat.pledges?'checked':''}></label>
+      <label class="toggle"><span>SMS receipts & reminders<small>Only to members who agreed to texts</small></span><input type="checkbox" data-feat="sms" ${S.feat.sms?'checked':''}></label>
+      <label class="toggle"><span>Members can see their own records<small>Each member signs in with their phone number</small></span><input type="checkbox" data-feat="selfview" ${S.feat.selfview?'checked':''}></label></div>
+    <div class="card"><h3>People who can sign in</h3><div class="list">
+      ${[['You',C().admin,'Everything'],['Financial officer',C().fin,'All units · records & approves'],['Youth helper',`${uName('youth').split(' ')[0]} treasurer`,`${uName('youth')} only`]].map(([n,r,a])=>`<div class="item"><span class="av">${n[0]}</span><span class="t"><b>${n}</b><small>${esc(r)} · ${esc(a)}</small></span></div>`).join('')}</div>
+      <button class="btn ghost" style="align-self:flex-start" data-act="export" data-id="Invite">＋ Invite someone</button></div>
+    <div class="card"><h3>Start again</h3><span class="muted">Go back to the first screen and choose Church or Organization again.</span><button class="btn ghost" style="align-self:flex-start" data-act="resetup">Run setup again</button></div>
+  </div>`;
+}
+
+/* ===== Sheets ===== */
+function sheetHTML(){
+  const sh=S.sheet; if(!sh) return '';
+  const head=t=>`<div class="sheethead"><h3>${t}</h3><button class="x" data-act="close" aria-label="Close">✕</button></div>`;
+  if(sh.t==='more') return `<div class="sheet" role="dialog" aria-label="More">${head('More')}<div class="menu">${MORE().map(([k,i,l])=>`<button data-act="tab" data-id="${k}"><i>${i}</i>${l}</button>`).join('')}</div></div>`;
+  if(sh.t==='expense'){ const x=expenses.find(e=>e.id===sh.id); if(!x) return ''; const [c,lab]=ST[x.st];
+    return `<div class="sheet" role="dialog" aria-label="Expense details">${head('Expense details')}
+      <div><div class="bigamt num">${fmt(x.amt)}</div><span class="chip ${c}">${lab}</span></div>
+      <dl class="kv"><dt>Paid to</dt><dd>${esc(x.to)}</dd><dt>For</dt><dd>${esc(x.line)}</dd><dt>Date</dt><dd>${dShort(x.d)} 2026</dd><dt>Unit</dt><dd>${esc(uName(x.u))}</dd>
+        <dt>Paid from</dt><dd>${esc(x.fund)}</dd><dt>Budget line</dt><dd>${esc(x.budget||'—')}</dd><dt>Recorded by</dt><dd>${esc(C().fin)}</dd>
+        <dt>Approved by</dt><dd>${x.st==='pending'?'Not yet':'You ('+esc(C().admin)+')'}</dd><dt>Recipient</dt><dd>${x.st==='confirmed'?'Confirmed by SMS link':'Not confirmed yet'}</dd>
+        <dt>Receipt no.</dt><dd class="num">${x.rcpt}</dd>${x.note?`<dt>Note</dt><dd>${esc(x.note)}</dd>`:''}<dt>Receipt photo</dt><dd><button class="link" data-act="export" data-id="Photo">Attach photo</button></dd></dl>
+      ${x.st==='pending'&&role().approve?`<button class="btn" data-act="approve" data-id="${x.id}">Approve this expense</button>`:''}
+      ${x.st==='pending'&&!role().approve?`<div class="note">The ${esc(C().fin)} or ${esc(C().admin)} approves this.</div>`:''}
+      ${x.st==='approved'?`<button class="btn ghost" data-act="confirm" data-id="${x.id}">Demo: recipient taps “Yes, I received it”</button>`:''}</div>`; }
+  if(sh.t==='income'){ const sc=scope(), m=sh.member?members.find(x=>x.id===sh.member):null;
+    const types=C().income.filter(t=>sc.includes('station')||!C().topOnly.includes(t));
+    return `<div class="sheet" role="dialog" aria-label="Record income">${head('Record income')}
+      <label class="f">Unit<select id="iu">${sc.map(u=>`<option value="${u}">${esc(uName(u))}</option>`).join('')}</select></label>
+      <label class="f">Type<select id="it">${types.map(t=>`<option>${t}</option>`).join('')}</select></label>
+      <label class="f">Member (optional)<select id="im"><option value="">— No member —</option>${members.filter(x=>x.units.some(inScope)).map(x=>`<option value="${x.id}" ${m&&m.id===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="ia" inputmode="decimal" placeholder="0.00"></label>
+      <label class="f">Paid by<select id="ipm"><option>Cash</option><option>Mobile Money</option><option>Bank transfer</option><option>Cheque</option></select></label></div>
+      ${S.feat.sms?`<label class="toggle"><span>Text a receipt to the member</span><input type="checkbox" id="isms" checked></label>`:''}
+      <button class="btn" data-act="saveincome">Save</button></div>`; }
+  if(sh.t==='expnew'){ const sc=scope(), funds=['General fund',...(S.type==='church'?['Day Born fund']:[]),'Welfare fund','Building fund','Youth fund','Choir fund'].map(f=>S.type==='org'?orgify(f):f);
+    return `<div class="sheet" role="dialog" aria-label="Record expense">${head('Record expense')}
+      <label class="f">Unit<select id="xu">${sc.map(u=>`<option value="${u}">${esc(uName(u))}</option>`).join('')}</select></label>
+      <label class="f">Paid to<input type="text" id="xto" placeholder="Person, shop or project"></label>
+      <label class="f">What for<input type="text" id="xline" placeholder="e.g. Refreshments"></label>
+      <div class="row2"><label class="f">Amount (${curSym()})<input type="number" id="xa" inputmode="decimal" placeholder="0.00"></label>
+      <label class="f">Paid from<select id="xf">${[...new Set(funds)].map(f=>`<option ${sh.fund===f?'selected':''}>${esc(f)}</option>`).join('')}</select></label></div>
+      <label class="f">Budget line<select id="xb"><option value="">— None —</option>${budgets.filter(b=>inScope(b.u)).map(b=>`<option>${esc(b.name)}</option>`).join('')}</select></label>
+      <div class="note">The expense waits for approval before it counts against the balance and budget.</div>
+      <button class="btn" data-act="saveexp">Save expense</button></div>`; }
+  if(sh.t==='dayentry'){ const total=S.sunday.reduce((s,v)=>s+(parseFloat(v)||0),0), last=SUNDAYS.length-1;
+    return `<div class="sheet" role="dialog" aria-label="Day Born count">${head('Day Born · Sunday 22 Nov')}
+      <div>${DAYS.map((d,i)=>`<div class="day"><div><b>${d.d}</b><small>${d.f?`${d.m} · ${d.f}`:d.m} · last week ${DB[i][last]}</small></div><input type="number" inputmode="decimal" min="0" id="day${i}" data-day="${i}" placeholder="0.00" value="${esc(S.sunday[i])}" aria-label="${d.d} amount"></div>`).join('')}</div>
+      <div class="row2"><label class="f">Counted by<input type="text" id="c1" placeholder="Counter 1"></label><label class="f">&nbsp;<input type="text" id="c2" placeholder="Counter 2"></label></div>
+      <div class="sumbar"><div><span>Day Born total</span><b class="num" id="stotal">${fmt(total)}</b></div><button class="btn light" data-act="savesunday">Save count</button></div></div>`; }
+  if(sh.t==='pledgepay'){ const c=campaigns.find(x=>x.id===sh.id), p=c.pledges[sh.i], m=members.find(x=>x.id===p.m);
+    return `<div class="sheet" role="dialog" aria-label="Pledge payment">${head('Pledge payment')}<span class="muted">${esc(m?m.name:'')} · ${esc(c.name)} · balance ${fmt(p.p-p.paid)}</span>
+      <label class="f">Amount (${curSym()})<input type="number" id="ppa" value="${p.p-p.paid}"></label><button class="btn" data-act="savepledge" data-id="${c.id}" data-i="${sh.i}">Save payment</button></div>`; }
+  if(sh.t==='simple'){ const k=sh.k, title=k==='member'?'Add a member':k==='camp'?'Start a fundraising':(S.spendKind==='person'?'Add a person':'Add a project');
+    return `<div class="sheet" role="dialog" aria-label="${title}">${head(title)}<input type="text" id="sname" placeholder="Name">${k==='camp'?`<input type="number" id="starget" placeholder="Target (${curSym()})">`:''}<button class="btn" data-act="add-${k}">Add</button></div>`; }
+  return '';
+}
+
+/* ===== Render ===== */
+const MAIN = () => [['home','⌂','Home'],['members','👥','Members'],...(canDayBorn()?[['dayborn','☀','Day Born']]:[]),['spend','⇄','Expenses'],['budget','◔','Budget']];
+const MORE = () => [...(S.feat.pledges?[['fund','◎','Fundraising']]:[]),['reports','▤','Reports'],['activity','↺','Activity'],['structure','⋔','Structure'],['settings','⚙','Settings']];
+const TITLES = {home:'Home',members:'Members',dayborn:'Day Born',spend:'Expenses',budget:'Budget',fund:'Fundraising',reports:'Reports',activity:'Activity',structure:'Structure',settings:'Settings'};
+function render(){
+  if(S.setup){ document.body.dataset.layout='setup'; document.getElementById('root').innerHTML=setupView(); document.getElementById('tabs').innerHTML=''; document.getElementById('layer').innerHTML=''; return; }
+  const desk=isDesk(); document.body.dataset.layout=desk?'desk':'phone';
+  if(S.tab==='dayborn'&&!canDayBorn()) S.tab='home';
+  if(S.tab==='fund'&&!S.feat.pledges) S.tab='home';
+  const r=role(), multi=r.units==='all';
+  const views={home,members:membersView,dayborn:dayBornView,spend:spendView,budget:budgetView,fund:fundView,reports:reportsView,activity:activityView,structure:structureView,settings:settingsView};
+  const unitSel=multi?`<select class="unitsel" id="unitsel" aria-label="Unit">${['all',...visibleIds()].map(id=>`<option value="${id}" ${S.view===id?'selected':''}>${id==='all'?C().all:esc(uName(id))}</option>`).join('')}</select>`:`<span class="chip">${esc(uName(r.units[0]))}</span>`;
+  const demo=`<div class="demo"><small><b>Prototype</b> · example records only. Signed in as:</small>
+    <div class="seg" role="group" aria-label="Preview as">${Object.entries(ROLES()).map(([k,v])=>`<button data-act="role" data-id="${k}" aria-pressed="${S.role===k}">${esc(v.label)}</button>`).join('')}</div><small>${esc(r.who)}</small>
+    ${window.innerWidth>=900?`<div class="seg" role="group" aria-label="Layout"><button data-act="layout" data-id="desk" aria-pressed="${!S.forcePhone}">Laptop</button><button data-act="layout" data-id="phone" aria-pressed="${S.forcePhone}">Phone</button></div>`:''}</div>`;
+  const nm=esc(S.orgName||(S.type==='church'?'My Church':'My Organization'));
+  const content=views[S.tab]();
+  const navBtn=([k,i,l])=>`<button data-act="tab" data-id="${k}" ${S.tab===k?'aria-current="page"':''}><i>${i}</i>${l}</button>`;
+  document.getElementById('root').innerHTML = desk
+    ? `<div class="shell"><aside class="side"><div class="logo"><i>₵</i><span>SikaBook</span></div><span class="orgname">${nm}</span>${unitSel}
+        <nav aria-label="Main">${MAIN().map(navBtn).join('')}<span class="navlab">More</span>${MORE().map(navBtn).join('')}</nav>${demo}</aside>
+        <main class="main"><div class="deskhead"><div><span class="muted">${esc(scopeLabel())}</span><h1>${TITLES[S.tab]}</h1></div><div class="btnrow"><button class="btn ghost" data-act="sheet" data-t="income">＋ Income</button><button class="btn ghost" data-act="sheet" data-t="expnew">− Expense</button></div></div>${content}</main></div>`
+    : `<div class="shell"><main class="main">${demo}<header class="top"><div class="logo"><i>₵</i><span>${nm}</span></div>${unitSel}<button class="iconbtn" data-act="sheet" data-t="more" aria-label="More">☰</button></header>${content}</main></div>`;
+  const tabs=MAIN();
+  document.getElementById('tabs').innerHTML=`<div style="--n:${tabs.length}">${tabs.map(navBtn).join('')}</div>`;
+  document.getElementById('layer').innerHTML=S.sheet?`<div class="sheetbg" data-act="bg">${sheetHTML()}</div>`:'';
+}
+function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2800); }
+const val=id=>(document.getElementById(id)||{}).value||'';
+const chk=id=>!!(document.getElementById(id)||{}).checked;
+const top0=()=>window.scrollTo(0,0);
+const firstUnit=()=>S.view==='all'?visibleIds()[0]:S.view;
+
+document.addEventListener('click', e=>{
+  const el=e.target.closest('[data-act]'); if(!el) return;
+  const a=el.dataset.act, id=el.dataset.id, i=+el.dataset.i;
+  if(a==='bg'&&e.target!==el) return;
+  switch(a){
+    case 'stype': S.orgName=val('oname'); S.cur=val('ocur')||S.cur; S.type=id; S.feat.dayborn = id==='church'; break;
+    case 'finishsetup': S.orgName=val('oname').trim(); S.cur=val('ocur'); if(S.type==='church') S.feat.dayborn=chk('fdb'); else S.feat.dayborn=false; S.feat.pledges=chk('fpl'); S.feat.sms=chk('fsms');
+      loadData(S.type); S.setup=false; S.tab='home'; S.view='all'; S.role='me'; top0(); break;
+    case 'resetup': S.setup=true; S.sheet=null; top0(); break;
+    case 'role': S.role=id; S.view=ROLES()[id].units==='all'?'all':ROLES()[id].units[0]; S.member=S.payee=S.camp=null; S.group=null; S.tab='home'; S.showAll=S.showOwing=false; S.q=''; break;
+    case 'layout': S.forcePhone=id==='phone'; break;
+    case 'tab': S.tab=id; S.member=S.payee=S.camp=null; S.group=null; S.sheet=null; top0(); break;
+    case 'view': S.view=id; top0(); break;
+    case 'member': S.member=id||null; top0(); break;
+    case 'gomember': S.tab='members'; S.member=id; S.group=null; top0(); break;
+    case 'group': S.group=i>=0?i:null; top0(); break;
+    case 'camp': S.camp=id||null; top0(); break;
+    case 'showall': S.showAll=true; break;
+    case 'owing': S.showOwing=true; break;
+    case 'remind': { const m=members.find(x=>x.id===id); log(`Sent payment reminder to ${m.name}`); toast(`Reminder sent to ${m.name} (demo).`); return; }
+    case 'remindall': log('Sent November payment reminders'); toast('Reminders sent (demo).'); return;
+    case 'statement': { const m=members.find(x=>x.id===id); toast(`2026 statement sent to ${m.name} by SMS (demo).`); return; }
+    case 'export': toast(id==='Invite'?'In the real app, you type a phone number or email and choose what they can see.':id==='Photo'?'In the real app, this opens the camera to snap the receipt.':`In the real app, this creates “${id}” for you to download or share.`); return;
+    case 'payee': S.payee=id||null; top0(); break;
+    case 'skind': S.spendKind=id; break;
+    case 'sheet': S.sheet={t:el.dataset.t,id,i,member:el.dataset.member,k:el.dataset.k,fund:el.dataset.fund}; break;
+    case 'pay': { const p=payees.find(x=>x.id===id), l=p.lines[i]; expenses.push(E(p.u,'2026-11-21',p.id,p.name,l.n,l.a,'pending',p.kind==='project'?orgSafe('Building fund'):'General fund',l.b)); log(`Recorded expense: ${p.name} — ${l.n} ${l.a.toLocaleString('en-US')}`); toast(`${l.n} · ${fmt(l.a)} recorded. Waiting for approval.`); break; }
+    case 'approve': { const x=expenses.find(e=>e.id===id); x.st='approved'; const b=budgets.find(y=>y.u===x.u&&y.name===x.budget); if(b) b.spent+=x.amt; log(`Approved expense: ${x.to} — ${x.line}`); toast('Approved. A confirmation link was sent to the recipient (demo).'); break; }
+    case 'confirm': { const x=expenses.find(e=>e.id===id); x.st='confirmed'; logs.unshift(['Today '+new Date().toTimeString().slice(0,5),x.to,`Confirmed receiving ${x.line} ${x.amt.toLocaleString('en-US')}`]); toast('Recipient confirmed they received it.'); break; }
+    case 'bedit': S.editB=i; break;
+    case 'bsave': { const v=parseFloat(val('bedit')); if(v>=0){ log(`Changed budget: ${budgets[i].name} from ${budgets[i].budget.toLocaleString('en-US')} to ${v.toLocaleString('en-US')}`); budgets[i].budget=v; toast('Budget updated. Everything recalculated.'); } S.editB=null; break; }
+    case 'badd': { const n=val('bname').trim(), v=parseFloat(val('bamt')); if(!n||!(v>0)){ toast('Enter a name and an amount above 0.'); return; } budgets.push({u:firstUnit(),name:n,budget:v,spent:0}); log(`Added budget line: ${n}`); toast(`“${n}” added to the budget.`); break; }
+    case 'savesunday': { const tot=S.sunday.reduce((s,v)=>s+(parseFloat(v)||0),0); if(!tot){ toast('Enter at least one group amount.'); return; }
+      SUNDAYS.push('22 Nov'); SUN_ISO.push('2026-11-22'); DAYS.forEach((_,k)=>DB[k].push(parseFloat(S.sunday[k])||0));
+      txs.push(T('station','2026-11-22','Day Born','Day Born offering (8 groups)',tot)); S.sunday=DAYS.map(()=>''); S.sheet=null; S.tab='dayborn'; S.group=null;
+      log(`Saved Day Born count for 22 Nov — ${tot.toLocaleString('en-US')}`); toast(`Saved ${fmt(tot)}. 22 Nov now shows in the Day Born table and chart.`); break; }
+    case 'saveexp': { const v=parseFloat(val('xa')), to=val('xto').trim(), line=val('xline').trim(); if(!(v>0)||!to){ toast('Enter who was paid and an amount above 0.'); return; }
+      expenses.push(E(val('xu'),'2026-11-21',null,to,line||'General',v,'pending',val('xf'),val('xb'))); log(`Recorded expense: ${to} ${v.toLocaleString('en-US')}`); S.sheet=null; toast('Expense saved. Waiting for approval.'); break; }
+    case 'savepledge': { const v=parseFloat(val('ppa')), c=campaigns.find(x=>x.id===id), p=c.pledges[i]; if(!(v>0)){ toast('Enter an amount above 0.'); return; } p.paid+=v; txs.push(T(c.u,'2026-11-21','Fundraising',`${c.name} — pledge payment`,v)); log(`Recorded pledge payment for ${c.name}: ${v.toLocaleString('en-US')}`); S.sheet=null; toast('Pledge payment saved.'); break; }
+    case 'addunit': { const n=val('newunit').trim(); if(!n){ toast('Type a name first.'); return; } units.push({id:'u'+Date.now(),name:n,kind:'sub',open:0}); log(`Added ${C().sub.toLowerCase()}: ${n}`); toast(`${n} added.`); break; }
+    case 'hshow': S.showHigher=true; break;
+    case 'hcancel': S.showHigher=false; break;
+    case 'hadd': { const n=val('hname').trim(), lv=val('hlevel'); if(!n){ toast('Type a name first.'); return; } const ord=C().higher.slice().reverse(); higher.push({level:lv,name:n}); higher.sort((x,y)=>ord.indexOf(x.level)-ord.indexOf(y.level)); S.showHigher=false; log(`Added ${lv}: ${n}`); toast(`${n} (${lv}) added above.`); break; }
+    case 'add-member': { const n=val('sname').trim(); if(!n){ toast('Type a name first.'); return; } members.push({id:'m'+Date.now(),name:n,day:'',units:[firstUnit()],phone:'—',tithe:MONTHS.map((_,m)=>m>NOW_M?null:0),dues:MONTHS.map((_,m)=>m>NOW_M?null:0),welfare:0,funeral:0,thanks:0}); log(`Added member: ${n}`); S.sheet=null; S.q=n; toast(`${n} added.`); break; }
+    case 'add-payee': { const n=val('sname').trim(); if(!n){ toast('Type a name first.'); return; } payees.push({id:'p'+Date.now(),u:firstUnit(),kind:S.spendKind==='all'?'person':S.spendKind,name:n,sub:'New',lines:[{n:'Monthly support',f:'Monthly',a:200,b:''}]}); log(`Added ${S.spendKind}: ${n}`); S.sheet=null; toast(`${n} added. Open it to set up support lines.`); break; }
+    case 'add-camp': { const n=val('sname').trim(), v=parseFloat(val('starget')); if(!n||!(v>0)){ toast('Enter a name and a target above 0.'); return; } campaigns.push({id:'c'+Date.now(),u:firstUnit(),name:n,target:v,ends:'—',extra:0,pledges:[]}); log(`Started fundraising: ${n}`); S.sheet=null; toast(`${n} started.`); break; }
+    case 'saveincome': { const v=parseFloat(val('ia')); if(!(v>0)){ toast('Enter an amount above 0.'); return; } const t=val('it'), m=members.find(x=>x.id===val('im')), sms=chk('isms');
+      txs.push(T(val('iu'),'2026-11-21',t,m?`${t} — ${m.name}`:t,v));
+      if(m){ if(t===C().income[1]) m.tithe[NOW_M]=(m.tithe[NOW_M]||0)+v; if(t==='Monthly dues') m.dues[NOW_M]=(m.dues[NOW_M]||0)+v; if(t==='Welfare dues') m.welfare+=v; if(t==='Funeral dues') m.funeral+=v; if(t===C().income[2]) m.thanks+=v; }
+      log(`Recorded ${t} ${v.toLocaleString('en-US')}${m?' — '+m.name:''}`); S.sheet=null; toast(`${t} of ${fmt(v)} saved. Receipt #2026-${String(txs.length).padStart(4,'0')}${m&&sms?' texted to '+m.name.split(' ')[0]:''}.`); break; }
+    case 'savename': S.orgName=val('setname').trim(); S.cur=val('setcur'); toast('Settings saved.'); break;
+    case 'close': case 'bg': S.sheet=null; break;
+  }
+  render();
+});
+function orgSafe(s){ return S.type==='org'?orgify(s):s; }
+document.addEventListener('input', e=>{
+  if(e.target.id==='msearch'){ S.q=e.target.value; document.getElementById('mlist').innerHTML=memberList(members.filter(m=>m.units.some(inScope))); }
+  if(e.target.dataset.day!==undefined){ S.sunday[+e.target.dataset.day]=e.target.value; document.getElementById('stotal').textContent=fmt(S.sunday.reduce((s,v)=>s+(parseFloat(v)||0),0)); }
+});
+document.addEventListener('change', e=>{
+  if(e.target.id==='unitsel'){ S.view=e.target.value; S.member=S.payee=S.camp=null; S.group=null; render(); }
+  if(e.target.dataset.feat){ S.feat[e.target.dataset.feat]=e.target.checked; render(); }
+  if(e.target.id==='setcur'){ S.cur=e.target.value; render(); }
+});
+const tip=document.getElementById('tip');
+document.addEventListener('pointerover', e=>{ const t=e.target.closest&&e.target.closest('[data-tip]'); if(!t){ tip.hidden=true; return; } const r=t.getBoundingClientRect(); tip.textContent=t.dataset.tip; tip.style.left=Math.min(window.innerWidth-90,Math.max(90,r.left+r.width/2))+'px'; tip.style.top=(r.top+r.height*0.2)+'px'; tip.hidden=false; });
+document.addEventListener('scroll', ()=>{ tip.hidden=true; }, {passive:true});
+let lastDesk=isDesk(); window.addEventListener('resize', ()=>{ if(isDesk()!==lastDesk){ lastDesk=isDesk(); render(); } });
+render();
+</script>
